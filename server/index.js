@@ -1,34 +1,73 @@
 'use strict';
 
-const express  = require('express');
-const cors     = require('cors');
-const Database = require('better-sqlite3');
-const crypto   = require('crypto');
-const path     = require('path');
+// Load .env from server/ directory before everything else
+require('dotenv').config();
+
+const express    = require('express');
+const cors       = require('cors');
+const Database   = require('better-sqlite3');
+const crypto     = require('crypto');
+const path       = require('path');
+const nodemailer = require('nodemailer');
 
 const app  = express();
-const PORT = 5001;
+const PORT = process.env.PORT || 5001;
+
+// ── DEMO MODE detection ───────────────────────────────────────────────────────
+//
+// DEMO_MODE = true  → OTP returned in JSON response (no email sent)
+// DEMO_MODE = false → OTP sent via real SMTP email, not exposed in JSON
+//
+const SMTP = {
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  user: process.env.SMTP_USER,
+  pass: process.env.SMTP_PASS,
+  from: process.env.SMTP_FROM || 'security@moro.it',
+};
+
+const DEMO_MODE = !SMTP.host || !SMTP.user || !SMTP.pass;
+
+// Nodemailer transporter — created only when SMTP is fully configured
+const mailer = DEMO_MODE
+  ? null
+  : nodemailer.createTransport({
+      host: SMTP.host,
+      port: SMTP.port,
+      secure: SMTP.port === 465,
+      auth: { user: SMTP.user, pass: SMTP.pass },
+    });
+
+if (DEMO_MODE) {
+  console.log('[OTP] ⚠  DEMO_MODE attivo — OTP restituito nel JSON (no email reale)');
+  console.log('[OTP]    Per attivare email reali: crea server/.env con SMTP_HOST/USER/PASS');
+} else {
+  console.log(`[OTP] ✉  SMTP configurato → ${SMTP.host}:${SMTP.port} (from: ${SMTP.from})`);
+}
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:5174'];
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Allow requests with no origin (curl, Postman, server-to-server)
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origine non consentita — ${origin}`));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+app.use(express.json());
 
 // ── Database bootstrap ────────────────────────────────────────────────────────
 
-const db = new Database(path.join(__dirname, 'database.sqlite'), {
-  // verbose: console.log,  // uncomment to log every SQL statement
-});
-
-// Enable WAL mode for better concurrent read performance
+const db = new Database(path.join(__dirname, 'database.sqlite'));
 db.pragma('journal_mode = WAL');
 
-/*
- * Schema SQL
- * ──────────
- * CREATE TABLE IF NOT EXISTS users (
- *   id            INTEGER  PRIMARY KEY AUTOINCREMENT,
- *   email         TEXT     UNIQUE NOT NULL,
- *   password      TEXT     NOT NULL,          -- SHA-256 hex (not bcrypt: demo only)
- *   otp_secret    TEXT,                        -- 6-digit code, cleared after use
- *   otp_timestamp DATETIME                     -- ISO-8601, used for 2-min TTL check
- * );
- */
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER  PRIMARY KEY AUTOINCREMENT,
@@ -39,23 +78,9 @@ db.exec(`
   )
 `);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const hashPwd    = pwd => crypto.createHash('sha256').update(pwd).digest('hex');
+const generateOtp = () => String(Math.floor(crypto.randomInt(0, 1_000_000))).padStart(6, '0');
 
-/** SHA-256 hash (hex). Replace with bcrypt in production. */
-const hashPwd = (pwd) => crypto.createHash('sha256').update(pwd).digest('hex');
-
-/** Cryptographically random 6-digit OTP string (padded with leading zeros). */
-const generateOtp = () =>
-  String(Math.floor(crypto.randomInt(0, 1_000_000))).padStart(6, '0');
-
-// ── Seed ─────────────────────────────────────────────────────────────────────
-/*
- * Seed query:
- *   INSERT INTO users (email, password) VALUES (?, ?)
- *   params: ['admin@moro.it', sha256('Password123!')]
- *
- * Runs only when the users table is empty (first boot).
- */
 const { n: userCount } = db.prepare('SELECT COUNT(*) AS n FROM users').get();
 if (userCount === 0) {
   db.prepare('INSERT INTO users (email, password) VALUES (?, ?)')
@@ -63,31 +88,91 @@ if (userCount === 0) {
   console.log('[DB] Seed: utente admin@moro.it creato');
 }
 
-// ── Middleware ────────────────────────────────────────────────────────────────
+// ── Email HTML template ───────────────────────────────────────────────────────
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174'],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type'],
-}));
+function buildOtpEmail(otp, recipientEmail) {
+  return {
+    from:    `"Moro Analytics Security" <${SMTP.from}>`,
+    to:      recipientEmail,
+    subject: `${otp} — Il tuo codice di verifica Moro Analytics`,
+    html: `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table width="480" cellpadding="0" cellspacing="0" style="border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
 
-app.use(express.json());
+        <!-- Header -->
+        <tr>
+          <td style="background:#0f2540;padding:28px 36px;text-align:center;">
+            <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 8px;">
+              MORO ANALYTICS
+            </p>
+            <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0;letter-spacing:-0.5px;">
+              Verifica Identità
+            </h1>
+          </td>
+        </tr>
 
-// ── Route: health ─────────────────────────────────────────────────────────────
+        <!-- Body -->
+        <tr>
+          <td style="background:#ffffff;padding:36px 36px 28px;">
+            <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 28px;">
+              È stata richiesta l'autenticazione a due fattori per l'account
+              <strong>${recipientEmail}</strong>.<br>
+              Usa il codice seguente per completare l'accesso:
+            </p>
+
+            <!-- OTP box -->
+            <div style="background:#f1f5f9;border-radius:12px;padding:28px;text-align:center;margin:0 0 28px;">
+              <p style="color:#64748b;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 14px;">
+                Codice OTP
+              </p>
+              <p style="color:#1e3a5f;font-size:48px;font-weight:900;letter-spacing:14px;margin:0;font-family:'Courier New',monospace;">
+                ${otp}
+              </p>
+              <p style="color:#94a3b8;font-size:13px;margin:14px 0 0;">
+                Valido per <strong style="color:#64748b;">2 minuti</strong>
+              </p>
+            </div>
+
+            <p style="color:#94a3b8;font-size:13px;line-height:1.6;margin:0;border-top:1px solid #f1f5f9;padding-top:20px;">
+              Se non hai effettuato nessun tentativo di accesso, ignora questa email
+              e valuta di aggiornare la password.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:18px 36px;text-align:center;">
+            <p style="color:#94a3b8;font-size:11px;margin:0;line-height:1.6;">
+              Messaggio automatico — non rispondere.<br>
+              © 2026 Moro Analytics · Evolution Group
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+  };
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', ts: new Date().toISOString() });
+  res.json({ status: 'ok', mode: DEMO_MODE ? 'demo' : 'production', ts: new Date().toISOString() });
 });
 
-// ── Route: POST /api/auth/login ───────────────────────────────────────────────
-/*
- * Verify query:
- *   SELECT id, email, password FROM users WHERE email = ?
- *
- * OTP storage query:
- *   UPDATE users SET otp_secret = ?, otp_timestamp = ? WHERE id = ?
- */
-app.post('/api/auth/login', (req, res) => {
+// POST /api/auth/login
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body ?? {};
 
   if (!email || !password) {
@@ -99,40 +184,46 @@ app.post('/api/auth/login', (req, res) => {
   ).get(email.toLowerCase().trim());
 
   if (!user || user.password !== hashPwd(password)) {
-    // Constant-time response to prevent timing attacks
     return res.status(401).json({ error: 'Credenziali non valide' });
   }
 
   const otp = generateOtp();
   const now = new Date().toISOString();
 
-  db.prepare(
-    'UPDATE users SET otp_secret = ?, otp_timestamp = ? WHERE id = ?'
-  ).run(otp, now, user.id);
+  db.prepare('UPDATE users SET otp_secret = ?, otp_timestamp = ? WHERE id = ?')
+    .run(otp, now, user.id);
 
-  // !! In produzione: invia via SMS / email. In demo: stampa su console. !!
+  // Always log to console regardless of mode
   console.log('\n╔══════════════════════════════════╗');
   console.log(`║  OTP per ${user.email.padEnd(21)}║`);
   console.log(`║  Codice:  ${otp.padEnd(21)}║`);
-  console.log('║  Valido per 2 minuti             ║');
+  console.log(`║  Modalità: ${(DEMO_MODE ? 'DEMO' : 'EMAIL').padEnd(20)}║`);
   console.log('╚══════════════════════════════════╝\n');
 
-  return res.json({
-    success: true,
-    message: 'OTP generato. Leggi il codice sulla console del server.',
-  });
+  if (DEMO_MODE) {
+    // ── Demo: expose OTP in response so the frontend can show the popup ──────
+    return res.json({
+      success: true,
+      demoOtp: otp,
+      message: 'DEMO_MODE: OTP incluso nella risposta (non usare in produzione).',
+    });
+  }
+
+  // ── Production: send email, never expose OTP in JSON ─────────────────────
+  try {
+    await mailer.sendMail(buildOtpEmail(otp, user.email));
+    console.log(`[OTP] ✉  Email inviata a ${user.email}`);
+    return res.json({
+      success: true,
+      message: `Codice OTP inviato via email a ${user.email}.`,
+    });
+  } catch (err) {
+    console.error('[OTP] ✗ Errore invio email:', err.message);
+    return res.status(500).json({ error: 'Errore invio email OTP. Contatta il supporto.' });
+  }
 });
 
-// ── Route: POST /api/auth/verify-otp ─────────────────────────────────────────
-/*
- * Verify query:
- *   SELECT id, email, otp_secret, otp_timestamp FROM users WHERE email = ?
- *
- * TTL check: (NOW - otp_timestamp) < 120 seconds
- *
- * Clear-after-use query:
- *   UPDATE users SET otp_secret = NULL, otp_timestamp = NULL WHERE id = ?
- */
+// POST /api/auth/verify-otp
 app.post('/api/auth/verify-otp', (req, res) => {
   const { email, otp } = req.body ?? {};
 
@@ -148,11 +239,9 @@ app.post('/api/auth/verify-otp', (req, res) => {
     return res.status(401).json({ error: 'OTP non trovato — effettua di nuovo il login' });
   }
 
-  const elapsedSeconds =
-    (Date.now() - new Date(user.otp_timestamp).getTime()) / 1000;
+  const elapsed = (Date.now() - new Date(user.otp_timestamp).getTime()) / 1000;
 
-  if (elapsedSeconds > 120) {
-    // Clear expired OTP
+  if (elapsed > 120) {
     db.prepare('UPDATE users SET otp_secret = NULL, otp_timestamp = NULL WHERE id = ?')
       .run(user.id);
     return res.status(401).json({ error: 'OTP scaduto (TTL: 2 minuti). Effettua di nuovo il login.' });
@@ -162,27 +251,18 @@ app.post('/api/auth/verify-otp', (req, res) => {
     return res.status(401).json({ error: 'Codice OTP non valido' });
   }
 
-  // ── Auth successful ──────────────────────────────────────────────────────
-  // Clear OTP to prevent replay attacks
   db.prepare('UPDATE users SET otp_secret = NULL, otp_timestamp = NULL WHERE id = ?')
     .run(user.id);
 
-  // Simple opaque token (replace with signed JWT in production)
   const token = crypto.randomBytes(32).toString('hex');
+  console.log(`[AUTH] ✓ ${user.email} autenticato`);
 
-  console.log(`[AUTH] ✓ ${user.email} autenticato — token: ${token.slice(0, 8)}…`);
-
-  return res.json({
-    success: true,
-    token,
-    user: { id: user.id, email: user.email },
-  });
+  return res.json({ success: true, token, user: { id: user.id, email: user.email } });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`\n🔷 Moro Analytics API  →  http://localhost:${PORT}`);
-  console.log('   Endpoint: POST /api/auth/login');
-  console.log('   Endpoint: POST /api/auth/verify-otp\n');
+  console.log(`   Mode: ${DEMO_MODE ? '⚡ DEMO' : '🔒 PRODUCTION (SMTP)'}\n`);
 });
