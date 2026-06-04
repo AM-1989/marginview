@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Build output
+dist/
+
+# Database (contains credentials — never commit)
+server/database.sqlite
+server/database.sqlite-shm
+server/database.sqlite-wal
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Python virtualenv (legacy from previous project)
+.venv/
+
+# Legacy files from previous project
+app.js
+orchestrator.py
+orchestrator_pipe.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+
+# Logs
+*.log
+npm-debug.log*
