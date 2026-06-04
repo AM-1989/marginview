@@ -5,7 +5,8 @@ import {
   Clipboard, CheckCircle2, X,
 } from 'lucide-react';
 
-const API_BASE = 'http://localhost:5001/api/auth';
+// URL relativo → in dev Vite proxia /api verso :5001, in prod Apache fa da proxy
+const API_BASE = '/api/auth';
 
 // ── Demo OTP notification popup ───────────────────────────────────────────────
 //
