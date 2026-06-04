@@ -19,11 +19,17 @@ const PORT = process.env.PORT || 5001;
 // DEMO_MODE = false → OTP sent via real SMTP email, not exposed in JSON
 //
 const SMTP = {
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587', 10),
-  user: process.env.SMTP_USER,
-  pass: process.env.SMTP_PASS,
-  from: process.env.SMTP_FROM || 'security@moro.it',
+  host:   process.env.SMTP_HOST,
+  port:   parseInt(process.env.SMTP_PORT || '587', 10),
+  user:   process.env.SMTP_USER,
+  pass:   process.env.SMTP_PASS,
+  from:   process.env.SMTP_FROM || 'security@moro.it',
+  // SMTP_SECURE=false → STARTTLS su porta 587 (MAIL_ENCRYPTION=tls)
+  // SMTP_SECURE=true  → SSL diretto su porta 465
+  // Se non impostato: auto-detect dalla porta
+  secure: process.env.SMTP_SECURE !== undefined
+    ? process.env.SMTP_SECURE === 'true'
+    : parseInt(process.env.SMTP_PORT || '587', 10) === 465,
 };
 
 const DEMO_MODE = !SMTP.host || !SMTP.user || !SMTP.pass;
@@ -32,9 +38,9 @@ const DEMO_MODE = !SMTP.host || !SMTP.user || !SMTP.pass;
 const mailer = DEMO_MODE
   ? null
   : nodemailer.createTransport({
-      host: SMTP.host,
-      port: SMTP.port,
-      secure: SMTP.port === 465,
+      host:   SMTP.host,
+      port:   SMTP.port,
+      secure: SMTP.secure,
       auth: { user: SMTP.user, pass: SMTP.pass },
     });
 
