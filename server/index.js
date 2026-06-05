@@ -305,18 +305,53 @@ app.post('/api/deploy', (req, res) => {
   const scriptPath = path.join(__dirname, '..', 'deploy.sh');
   console.log('[DEPLOY] ▶ Avvio deploy.sh...');
 
+  const logFile = path.join(__dirname, 'deploy.log');
+  const started = new Date().toISOString();
+
   // Risponde subito — il deploy gira in background
-  res.json({ success: true, message: 'Deploy avviato. Controlla i log PM2.' });
+  res.json({ success: true, message: 'Deploy avviato.', logFile });
 
   execFile('bash', [scriptPath], { cwd: path.join(__dirname, '..') }, (err, stdout, stderr) => {
+    const finished = new Date().toISOString();
+    const output = [
+      `=== DEPLOY ${started} ===`,
+      stdout,
+      stderr,
+      err ? `ERRORE: ${err.message}` : 'COMPLETATO OK',
+      `=== FINE ${finished} ===\n`,
+    ].join('\n');
+
+    // Scrivi su file e su console PM2
+    require('fs').appendFileSync(logFile, output);
     if (err) {
       console.error('[DEPLOY] ✗ Errore:', err.message);
       console.error(stderr);
     } else {
-      console.log('[DEPLOY] ✓ Completato');
+      console.log('[DEPLOY] ✓ Completato — log in server/deploy.log');
       console.log(stdout);
     }
   });
+});
+
+// ── Route: GET /api/deploy/log ────────────────────────────────────────────────
+// Restituisce le ultime righe del log di deploy (stesso token di autenticazione)
+
+app.get('/api/deploy/log', (req, res) => {
+  const secret = process.env.DEPLOY_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Deploy non configurato.' });
+
+  const token = req.headers['x-deploy-token'];
+  if (!token || token !== secret) return res.status(401).json({ error: 'Token non valido.' });
+
+  const logFile = path.join(__dirname, 'deploy.log');
+  const fs = require('fs');
+  if (!fs.existsSync(logFile)) return res.json({ log: '(nessun deploy eseguito ancora)' });
+
+  const content = fs.readFileSync(logFile, 'utf8');
+  // Ultime 100 righe
+  const lines = content.split('\n').slice(-100).join('\n');
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(lines);
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
