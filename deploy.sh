@@ -7,8 +7,11 @@
 #    - Node.js 20+ e npm
 #    - PM2 installato globalmente:  npm install -g pm2
 #    - Apache2 con mod_rewrite abilitato:  a2enmod rewrite && systemctl restart apache2
-#    - sudo configurato per www-data/rsync (o eseguire lo script come root)
-#    - Opzionale: server/  .env  con SMTP_HOST/USER/PASS per email reali
+#    - La cartella Apache deve essere di proprietà dell'utente che esegue lo script:
+#        sudo mkdir -p /var/www/html/margin-analysis
+#        sudo chown -R cristi:www-data /var/www/html/margin-analysis
+#        sudo chmod -R 755 /var/www/html/margin-analysis
+#    - Opzionale: server/.env con SMTP_HOST/USER/PASS per email reali
 # ══════════════════════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -75,17 +78,17 @@ ok "Build completata → $REPO_DIR/dist/"
 # ── 3. Deploy dist/ in Apache ────────────────────────────────────────────────
 
 step "Deploy in Apache: $APACHE_DIR"
-sudo mkdir -p "$APACHE_DIR"
+mkdir -p "$APACHE_DIR"
 
 # rsync: copia solo i file modificati, elimina quelli obsoleti.
 # --exclude='.htaccess' per non sovrascrivere la configurazione Apache.
-sudo rsync -av --delete --exclude='.htaccess' "$REPO_DIR/dist/" "$APACHE_DIR/"
+rsync -av --delete --exclude='.htaccess' "$REPO_DIR/dist/" "$APACHE_DIR/"
 ok "File statici copiati in $APACHE_DIR"
 
 # ── 4. Genera .htaccess per React SPA ────────────────────────────────────────
 
 step "Generazione .htaccess (SPA routing + sicurezza)"
-sudo tee "$APACHE_DIR/.htaccess" > /dev/null <<'HTACCESS'
+tee "$APACHE_DIR/.htaccess" > /dev/null <<'HTACCESS'
 # Moro Analytics — Apache config
 Options -MultiViews -Indexes
 
