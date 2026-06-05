@@ -3,7 +3,7 @@ import Sidebar, { type TabId } from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import Dashboard from './pages/Dashboard';
-import ABCAnalysis from './pages/ABCAnalysis';
+import ABCMatrix from './pages/ABCMatrix';
 import VarianceAnalysis from './pages/VarianceAnalysis';
 import BalanceAnalysis from './pages/BalanceAnalysis';
 import Login from './pages/Login';
@@ -23,7 +23,7 @@ import Login from './pages/Login';
 function renderPage(tab: TabId, onNavigate: (t: TabId) => void): React.ReactNode {
   switch (tab) {
     case 'dashboard': return <Dashboard onNavigate={onNavigate} />;
-    case 'abc':       return <ABCAnalysis />;
+    case 'abc':       return <ABCMatrix />;
     case 'variance':  return <VarianceAnalysis />;
     case 'balance':   return <BalanceAnalysis />;
   }

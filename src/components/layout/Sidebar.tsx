@@ -18,8 +18,8 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     id: 'abc',
-    label: 'Analisi ABC',
-    sublabel: 'Classificazione referenze',
+    label: 'Matrice ABC',
+    sublabel: 'Fatturato × Margine',
     icon: BarChart3,
   },
   {
