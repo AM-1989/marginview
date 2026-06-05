@@ -35,13 +35,16 @@ const SMTP = {
 const DEMO_MODE = !SMTP.host || !SMTP.user || !SMTP.pass;
 
 // Nodemailer transporter — created only when SMTP is fully configured
+// SMTP_DEBUG=true nel .env per log SMTP completo (conversazione raw)
 const mailer = DEMO_MODE
   ? null
   : nodemailer.createTransport({
       host:   SMTP.host,
       port:   SMTP.port,
       secure: SMTP.secure,
-      auth: { user: SMTP.user, pass: SMTP.pass },
+      auth:   { user: SMTP.user, pass: SMTP.pass },
+      logger: true,                                    // log ogni step SMTP
+      debug:  process.env.SMTP_DEBUG === 'true',       // log conversazione raw
     });
 
 if (DEMO_MODE) {
@@ -217,14 +220,24 @@ app.post('/api/auth/login', async (req, res) => {
 
   // ── Production: send email, never expose OTP in JSON ─────────────────────
   try {
-    await mailer.sendMail(buildOtpEmail(otp, user.email));
-    console.log(`[OTP] ✉  Email inviata a ${user.email}`);
+    const info = await mailer.sendMail(buildOtpEmail(otp, user.email));
+    // Log risposta completa Brevo/SMTP per debug
+    console.log(`[OTP] ✉  Accettata da SMTP per ${user.email}`);
+    console.log(`[OTP]    messageId : ${info.messageId}`);
+    console.log(`[OTP]    response  : ${info.response}`);
+    console.log(`[OTP]    accepted  : ${JSON.stringify(info.accepted)}`);
+    console.log(`[OTP]    rejected  : ${JSON.stringify(info.rejected)}`);
+    if (info.rejected && info.rejected.length > 0) {
+      console.error(`[OTP] ✗ Destinatari rifiutati: ${info.rejected.join(', ')}`);
+      return res.status(500).json({ error: 'Email rifiutata dal server SMTP.' });
+    }
     return res.json({
       success: true,
       message: `Codice OTP inviato via email a ${user.email}.`,
     });
   } catch (err) {
     console.error('[OTP] ✗ Errore invio email:', err.message);
+    console.error('[OTP]    Dettaglio:', err);
     return res.status(500).json({ error: 'Errore invio email OTP. Contatta il supporto.' });
   }
 });
