@@ -287,7 +287,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
 //   curl -X POST https://tuodominio.it/api/deploy \
 //        -H "x-deploy-token: IL_TUO_SECRET"
 
-const { execFile } = require('child_process');
+// child_process usato inline nel webhook deploy
 
 app.post('/api/deploy', (req, res) => {
   const secret = process.env.DEPLOY_SECRET;
@@ -306,31 +306,25 @@ app.post('/api/deploy', (req, res) => {
   console.log('[DEPLOY] ▶ Avvio deploy.sh...');
 
   const logFile = path.join(__dirname, 'deploy.log');
-  const started = new Date().toISOString();
+  const fs      = require('fs');
 
-  // Risponde subito — il deploy gira in background
-  res.json({ success: true, message: 'Deploy avviato.', logFile });
+  // Intestazione nel log
+  fs.appendFileSync(logFile, `\n=== DEPLOY ${new Date().toISOString()} ===\n`);
 
-  execFile('bash', [scriptPath], { cwd: path.join(__dirname, '..') }, (err, stdout, stderr) => {
-    const finished = new Date().toISOString();
-    const output = [
-      `=== DEPLOY ${started} ===`,
-      stdout,
-      stderr,
-      err ? `ERRORE: ${err.message}` : 'COMPLETATO OK',
-      `=== FINE ${finished} ===\n`,
-    ].join('\n');
-
-    // Scrivi su file e su console PM2
-    require('fs').appendFileSync(logFile, output);
-    if (err) {
-      console.error('[DEPLOY] ✗ Errore:', err.message);
-      console.error(stderr);
-    } else {
-      console.log('[DEPLOY] ✓ Completato — log in server/deploy.log');
-      console.log(stdout);
-    }
+  // spawn detached: il processo figlio sopravvive al pm2 restart del padre
+  // stdout e stderr vanno direttamente sul file di log
+  const logFd = fs.openSync(logFile, 'a');
+  const child = require('child_process').spawn('bash', [scriptPath], {
+    cwd:      path.join(__dirname, '..'),
+    detached: true,
+    stdio:    ['ignore', logFd, logFd],
   });
+  child.unref(); // non aspettare — il processo padre può morire liberamente
+
+  console.log(`[DEPLOY] ▶ Deploy avviato (PID ${child.pid}) — log: server/deploy.log`);
+
+  // Risponde subito
+  res.json({ success: true, message: 'Deploy avviato.', logFile });
 });
 
 // ── Route: GET /api/deploy/log ────────────────────────────────────────────────
