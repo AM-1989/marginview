@@ -279,9 +279,52 @@ app.post('/api/auth/verify-otp', (req, res) => {
   return res.json({ success: true, token, user: { id: user.id, email: user.email } });
 });
 
+// ── Route: POST /api/deploy ───────────────────────────────────────────────────
+// Lancia deploy.sh tramite una chiamata HTTP autenticata con token segreto.
+// Imposta DEPLOY_SECRET nel .env — senza di esso l'endpoint è disabilitato.
+//
+// Uso:
+//   curl -X POST https://tuodominio.it/api/deploy \
+//        -H "x-deploy-token: IL_TUO_SECRET"
+
+const { execFile } = require('child_process');
+
+app.post('/api/deploy', (req, res) => {
+  const secret = process.env.DEPLOY_SECRET;
+
+  if (!secret) {
+    return res.status(503).json({ error: 'Deploy webhook non configurato (manca DEPLOY_SECRET nel .env).' });
+  }
+
+  const token = req.headers['x-deploy-token'];
+  if (!token || token !== secret) {
+    console.warn('[DEPLOY] ✗ Tentativo non autorizzato da', req.ip);
+    return res.status(401).json({ error: 'Token non valido.' });
+  }
+
+  const scriptPath = path.join(__dirname, '..', 'deploy.sh');
+  console.log('[DEPLOY] ▶ Avvio deploy.sh...');
+
+  // Risponde subito — il deploy gira in background
+  res.json({ success: true, message: 'Deploy avviato. Controlla i log PM2.' });
+
+  execFile('bash', [scriptPath], { cwd: path.join(__dirname, '..') }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('[DEPLOY] ✗ Errore:', err.message);
+      console.error(stderr);
+    } else {
+      console.log('[DEPLOY] ✓ Completato');
+      console.log(stdout);
+    }
+  });
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`\n🔷 Moro Analytics API  →  http://localhost:${PORT}`);
-  console.log(`   Mode: ${DEMO_MODE ? '⚡ DEMO' : '🔒 PRODUCTION (SMTP)'}\n`);
+  console.log(`   Mode: ${DEMO_MODE ? '⚡ DEMO' : '🔒 PRODUCTION (SMTP)'}`);
+  if (process.env.DEPLOY_SECRET) {
+    console.log(`   Webhook deploy: POST /api/deploy (token configurato)\n`);
+  }
 });
