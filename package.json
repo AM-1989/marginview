@@ -9,7 +9,8 @@
     "dev:full": "concurrently --names \"UI,API\" --prefix-colors \"blue,green\" \"vite\" \"node server/index.js\"",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "start": "node server.js"
+    "start": "node server.js",
+    "postinstall": "cd server && npm install"
   },
   "dependencies": {
     "express": "^4.18.2",
