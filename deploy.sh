@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════════
 #  Moro Analytics — deploy.sh
-#  Uso:  ./deploy.sh [--no-pull]
+# 1 Uso:  ./deploy.sh [--no-pull]
 #
 #  Prerequisiti sul server Linux:
 #    - Node.js 20+ e npm
