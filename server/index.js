@@ -1,7 +1,7 @@
 'use strict';
 
-// Load .env from server/ directory before everything else
-require('dotenv').config();
+// Load .env from server/ directory — explicit path so it works regardless of CWD
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const express    = require('express');
 const cors       = require('cors');
@@ -348,12 +348,30 @@ app.get('/api/deploy/log', (req, res) => {
   res.send(lines);
 });
 
+// ── Serve frontend (dist/) in production ─────────────────────────────────────
+
+const fs = require('fs');
+const distPath = path.join(__dirname, '..', 'dist');
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // SPA fallback — tutte le route non-API tornano a index.html
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+  console.log(`[STATIC] Serving frontend from ${distPath}`);
+} else {
+  console.warn('[STATIC] dist/ non trovata — solo API attiva (esegui il build prima)');
+}
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-app.listen(PORT, () => {
-  console.log(`\n🔷 Moro Analytics API  →  http://localhost:${PORT}`);
-  console.log(`   Mode: ${DEMO_MODE ? '⚡ DEMO' : '🔒 PRODUCTION (SMTP)'}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n[START] Moro Analytics in ascolto su 0.0.0.0:${PORT}`);
+  console.log(`[START] Mode: ${DEMO_MODE ? 'DEMO (OTP nel JSON)' : 'PRODUCTION (SMTP)'}`);
+  console.log(`[START] Frontend: ${fs.existsSync(distPath) ? distPath : 'NON TROVATO'}`);
   if (process.env.DEPLOY_SECRET) {
-    console.log(`   Webhook deploy: POST /api/deploy (token configurato)\n`);
+    console.log('[START] Webhook deploy: POST /api/deploy (token configurato)');
   }
+  console.log('');
 });
