@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar, { type TabId } from './components/layout/Sidebar';
 import Header from './components/layout/Header';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -7,18 +8,8 @@ import ABCMatrix from './pages/ABCMatrix';
 import VarianceAnalysis from './pages/VarianceAnalysis';
 import BalanceAnalysis from './pages/BalanceAnalysis';
 import Login from './pages/Login';
-
-// ── Page router ───────────────────────────────────────────────────────────────
-//
-// Pages are rendered via a switch function (not a static module-level object).
-// This ensures:
-//   1. Each navigation creates a fresh React element (no stale instances).
-//   2. An ErrorBoundary keyed to currentTab catches crashes inside a module
-//      without unmounting App — so isAuthenticated stays true.
-//
-//   Sidebar  ──onTabChange──▶  App setState  ──currentTab──▶  renderPage()
-//   Dashboard card ──onNavigate──▶  same setState
-//
+import Settings from './pages/Settings';
+import ActivateAccount from './pages/ActivateAccount';
 
 function renderPage(tab: TabId, onNavigate: (t: TabId) => void): React.ReactNode {
   switch (tab) {
@@ -26,18 +17,33 @@ function renderPage(tab: TabId, onNavigate: (t: TabId) => void): React.ReactNode
     case 'abc':       return <ABCMatrix />;
     case 'variance':  return <VarianceAnalysis />;
     case 'balance':   return <BalanceAnalysis />;
+    case 'settings':  return <Settings />;
   }
 }
 
-// ── Root component ────────────────────────────────────────────────────────────
-
-export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+function AppShell() {
+  const { user, loading } = useAuth();
   const [currentTab, setCurrentTab] = useState<TabId>('dashboard');
 
-  if (!isAuthenticated) {
-    return <Login onSuccess={() => setIsAuthenticated(true)} />;
+  const activationToken = new URLSearchParams(window.location.search).get('activate');
+
+  // Redirect a dashboard se un non-admin finisce su settings
+  useEffect(() => {
+    if (user && currentTab === 'settings' && user.role !== 'admin') {
+      setCurrentTab('dashboard');
+    }
+  }, [user, currentTab]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
+
+  if (activationToken) return <ActivateAccount token={activationToken} />;
+  if (!user) return <Login />;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans">
@@ -47,16 +53,19 @@ export default function App() {
         <Header currentTab={currentTab} />
 
         <main className="flex-1 pt-14 overflow-y-auto">
-          {/*
-           * key={currentTab} resets the ErrorBoundary whenever the user
-           * navigates to a different tab, so the error state never bleeds
-           * between modules.
-           */}
           <ErrorBoundary key={currentTab}>
             {renderPage(currentTab, setCurrentTab)}
           </ErrorBoundary>
         </main>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

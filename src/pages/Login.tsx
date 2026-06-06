@@ -4,6 +4,7 @@ import {
   Loader2, AlertCircle, ShieldCheck, Terminal,
   Clipboard, CheckCircle2, X,
 } from 'lucide-react';
+import { useAuth, type AuthUser } from '../context/AuthContext';
 
 // URL relativo → in dev Vite proxia /api verso :5001, in prod Apache fa da proxy
 const API_BASE = '/api/auth';
@@ -160,7 +161,7 @@ function DemoOtpNotification({ otp, onDismiss, onApply }: DemoNotifProps) {
 type Step = 'credentials' | 'otp';
 
 interface LoginProps {
-  onSuccess: (token: string, email: string) => void;
+  onSuccess?: (token: string, email: string) => void;
 }
 
 interface LoginResponse {
@@ -171,14 +172,15 @@ interface LoginResponse {
 }
 
 interface VerifyResponse {
-  error?:  string;
-  token?:  string;
-  user?:   { email: string };
+  error?: string;
+  token?: string;
+  user?:  AuthUser;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Login({ onSuccess }: LoginProps) {
+  const { login } = useAuth();
   // ── Step 1 ─────────────────────────────────────────────────────────────────
   const [email,    setEmail]    = useState('admin@moro.it');
   const [password, setPassword] = useState('Password123!');
@@ -253,7 +255,8 @@ export default function Login({ onSuccess }: LoginProps) {
       const data = await res.json() as VerifyResponse;
       if (!res.ok) throw new Error(data.error ?? 'OTP non valido');
       setDemoOtp(null);
-      onSuccess(data.token ?? '', data.user?.email ?? email);
+      if (data.token && data.user) login(data.token, data.user);
+      onSuccess?.(data.token ?? '', data.user?.email ?? email);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore di verifica');
     } finally {

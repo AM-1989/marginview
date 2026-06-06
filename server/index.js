@@ -87,17 +87,120 @@ db.exec(`
   )
 `);
 
+// Schema migrations — idempotent (catch ignores "duplicate column" errors)
+for (const sql of [
+  "ALTER TABLE users ADD COLUMN name TEXT",
+  "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
+  "ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE users ADD COLUMN can_export INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE users ADD COLUMN allowed_modules TEXT",
+  "ALTER TABLE users ADD COLUMN activation_token TEXT",
+  "ALTER TABLE users ADD COLUMN activation_expires DATETIME",
+]) { try { db.exec(sql); } catch (_) {} }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT     PRIMARY KEY,
+    user_id    INTEGER  NOT NULL REFERENCES users(id),
+    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+
 const hashPwd    = pwd => crypto.createHash('sha256').update(pwd).digest('hex');
 const generateOtp = () => String(Math.floor(crypto.randomInt(0, 1_000_000))).padStart(6, '0');
 
 const { n: userCount } = db.prepare('SELECT COUNT(*) AS n FROM users').get();
 if (userCount === 0) {
-  db.prepare('INSERT INTO users (email, password) VALUES (?, ?)')
-    .run('admin@moro.it', hashPwd('Password123!'));
-  console.log('[DB] Seed: utente admin@moro.it creato');
+  db.prepare('INSERT INTO users (email, password, name, role, active) VALUES (?, ?, ?, ?, ?)')
+    .run('admin@moro.it', hashPwd('Password123!'), 'Amministratore', 'admin', 1);
+  console.log('[DB] Seed: admin@moro.it creato');
+} else {
+  // Ensure existing admin has correct role (handles DB migrated from old schema)
+  db.prepare("UPDATE users SET role='admin', active=1 WHERE email='admin@moro.it' AND (role IS NULL OR role='' OR role='user')")
+    .run();
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+const SESSION_TTL_HOURS = 8;
+
+function getUserFromToken(token) {
+  if (!token) return null;
+  return db.prepare(`
+    SELECT u.id, u.email, u.name, u.role, u.active, u.can_export, u.allowed_modules
+    FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND u.active = 1
+      AND s.created_at > datetime('now', '-${SESSION_TTL_HOURS} hours')
+  `).get(token) ?? null;
+}
+
+function requireAuth(req, res, next) {
+  const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
+  const user = getUserFromToken(token);
+  if (!user) return res.status(401).json({ error: 'Sessione non valida o scaduta.' });
+  req.user = user;
+  req._token = token;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (req.user?.role !== 'admin')
+    return res.status(403).json({ error: 'Accesso negato — richiesto ruolo Admin.' });
+  next();
+}
+
+function serializeUser(u) {
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name ?? null,
+    role: u.role,
+    canExport: u.can_export === 1,
+    allowedModules: u.allowed_modules ? JSON.parse(u.allowed_modules) : null,
+  };
 }
 
 // ── Email HTML template ───────────────────────────────────────────────────────
+
+function buildActivationEmail(activationUrl, recipientEmail) {
+  return {
+    from:    `"Moro Analytics" <${SMTP.from}>`,
+    to:      recipientEmail,
+    subject: 'Attiva il tuo account Moro Analytics',
+    html: `<!DOCTYPE html>
+<html lang="it">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table width="480" cellpadding="0" cellspacing="0" style="border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+        <tr><td style="background:#0f2540;padding:28px 36px;text-align:center;">
+          <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 8px;">MORO ANALYTICS</p>
+          <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0;">Attivazione Account</h1>
+        </td></tr>
+        <tr><td style="background:#ffffff;padding:36px;">
+          <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 24px;">
+            Sei stato invitato ad accedere a <strong>Moro Analytics</strong>.<br>
+            Clicca il pulsante per impostare la tua password e attivare l'account.
+          </p>
+          <div style="text-align:center;margin:0 0 28px;">
+            <a href="${activationUrl}" style="display:inline-block;background:#2563eb;color:#fff;font-size:15px;font-weight:700;padding:14px 32px;border-radius:10px;text-decoration:none;">
+              Attiva il mio account
+            </a>
+          </div>
+          <p style="color:#94a3b8;font-size:12px;line-height:1.6;margin:0;border-top:1px solid #f1f5f9;padding-top:16px;">
+            Il link è valido per 7 giorni. Se non hai richiesto questo invito, ignora questa email.
+          </p>
+        </td></tr>
+        <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 36px;text-align:center;">
+          <p style="color:#94a3b8;font-size:11px;margin:0;">Messaggio automatico — non rispondere. © 2026 Moro Analytics</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  };
+}
 
 function buildOtpEmail(otp, recipientEmail) {
   return {
@@ -180,6 +283,159 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', mode: DEMO_MODE ? 'demo' : 'production', ts: new Date().toISOString() });
 });
 
+// GET /api/auth/me — restores session from stored token
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json(serializeUser(req.user));
+});
+
+// POST /api/auth/logout
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(req._token);
+  res.json({ success: true });
+});
+
+// POST /api/auth/activate — sets password from activation link
+app.post('/api/auth/activate', (req, res) => {
+  const { token, password, name } = req.body ?? {};
+  if (!token || !password) return res.status(400).json({ error: 'Token e password obbligatori.' });
+  if (password.length < 8) return res.status(400).json({ error: 'La password deve avere almeno 8 caratteri.' });
+
+  const user = db.prepare(`
+    SELECT id, email FROM users
+    WHERE activation_token = ? AND activation_expires > datetime('now') AND active = 0
+  `).get(token);
+
+  if (!user) return res.status(400).json({ error: 'Link di attivazione non valido o scaduto.' });
+
+  db.prepare(`
+    UPDATE users
+    SET password = ?, name = COALESCE(?, name), active = 1,
+        activation_token = NULL, activation_expires = NULL
+    WHERE id = ?
+  `).run(hashPwd(password), name || null, user.id);
+
+  console.log(`[AUTH] ✓ Account attivato: ${user.email}`);
+  res.json({ success: true, email: user.email });
+});
+
+// ── Admin — gestione utenti ───────────────────────────────────────────────────
+
+// GET /api/admin/users
+app.get('/api/admin/users', requireAuth, requireAdmin, (_req, res) => {
+  const rows = db.prepare(`
+    SELECT id, email, name, role, active, can_export, allowed_modules,
+      (activation_token IS NOT NULL AND activation_expires > datetime('now')) AS pending
+    FROM users ORDER BY id
+  `).all();
+  res.json(rows.map(u => ({
+    ...serializeUser(u),
+    active: u.active === 1,
+    pendingActivation: !!u.pending,
+  })));
+});
+
+// POST /api/admin/users — crea utente e invia email di attivazione
+app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  const { email, name, role, canExport, allowedModules } = req.body ?? {};
+  if (!email) return res.status(400).json({ error: 'Email obbligatoria.' });
+
+  const normalized = email.toLowerCase().trim();
+  if (db.prepare('SELECT id FROM users WHERE email = ?').get(normalized))
+    return res.status(409).json({ error: 'Email già registrata.' });
+
+  const activationToken   = crypto.randomBytes(32).toString('hex');
+  const activationExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const modulesJson       = allowedModules ? JSON.stringify(allowedModules) : null;
+
+  db.prepare(`
+    INSERT INTO users (email, password, name, role, active, can_export, allowed_modules, activation_token, activation_expires)
+    VALUES (?, '', ?, ?, 0, ?, ?, ?, ?)
+  `).run(normalized, name || null, role || 'user', canExport !== false ? 1 : 0, modulesJson, activationToken, activationExpires);
+
+  const appUrl = process.env.APP_URL || 'http://localhost:5173';
+  const activationUrl = `${appUrl}/?activate=${activationToken}`;
+
+  if (DEMO_MODE) {
+    console.log(`[USERS] ✓ Utente creato: ${normalized}`);
+    console.log(`[USERS]   Link attivazione (DEMO): ${activationUrl}`);
+    return res.json({ success: true, activationUrl, demo: true });
+  }
+
+  try {
+    await mailer.sendMail(buildActivationEmail(activationUrl, normalized));
+    console.log(`[USERS] ✓ Email attivazione inviata a: ${normalized}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[USERS] ✗ Errore invio email:', err.message);
+    res.status(500).json({ error: 'Utente creato ma errore nell\'invio email.', activationUrl });
+  }
+});
+
+// PATCH /api/admin/users/:id — modifica utente
+app.patch('/api/admin/users/:id', requireAuth, requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) return res.status(400).json({ error: 'ID non valido.' });
+
+  if (id === req.user.id) {
+    if (req.body.role === 'user') return res.status(400).json({ error: 'Non puoi cambiare il tuo ruolo.' });
+    if (req.body.active === false) return res.status(400).json({ error: 'Non puoi disabilitare il tuo account.' });
+  }
+
+  if (!db.prepare('SELECT id FROM users WHERE id = ?').get(id))
+    return res.status(404).json({ error: 'Utente non trovato.' });
+
+  const { name, email, role, active, canExport, allowedModules } = req.body;
+  const sets = [], params = [];
+
+  if (name         !== undefined) { sets.push('name = ?');            params.push(name); }
+  if (email        !== undefined) { sets.push('email = ?');           params.push(email.toLowerCase().trim()); }
+  if (role         !== undefined) { sets.push('role = ?');            params.push(role); }
+  if (active       !== undefined) { sets.push('active = ?');          params.push(active ? 1 : 0); }
+  if (canExport    !== undefined) { sets.push('can_export = ?');      params.push(canExport ? 1 : 0); }
+  if (allowedModules !== undefined) {
+    sets.push('allowed_modules = ?');
+    params.push(allowedModules === null ? null : JSON.stringify(allowedModules));
+  }
+
+  if (!sets.length) return res.status(400).json({ error: 'Nessun campo da aggiornare.' });
+
+  params.push(id);
+  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+
+  // Invalida sessioni se l'utente è stato disabilitato
+  if (active === false) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+
+  res.json({ success: true });
+});
+
+// POST /api/admin/users/:id/resend-activation — reinvia email di attivazione
+app.post('/api/admin/users/:id/resend-activation', requireAuth, requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const user = db.prepare('SELECT id, email, active FROM users WHERE id = ?').get(id);
+  if (!user) return res.status(404).json({ error: 'Utente non trovato.' });
+  if (user.active) return res.status(400).json({ error: 'L\'utente è già attivo.' });
+
+  const activationToken   = crypto.randomBytes(32).toString('hex');
+  const activationExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('UPDATE users SET activation_token = ?, activation_expires = ? WHERE id = ?')
+    .run(activationToken, activationExpires, id);
+
+  const appUrl = process.env.APP_URL || 'http://localhost:5173';
+  const activationUrl = `${appUrl}/?activate=${activationToken}`;
+
+  if (DEMO_MODE) {
+    console.log(`[USERS] ✓ Nuovo link attivazione (DEMO): ${activationUrl}`);
+    return res.json({ success: true, activationUrl, demo: true });
+  }
+
+  try {
+    await mailer.sendMail(buildActivationEmail(activationUrl, user.email));
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Errore invio email.', activationUrl });
+  }
+});
+
 // POST /api/auth/login
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body ?? {};
@@ -189,10 +445,10 @@ app.post('/api/auth/login', async (req, res) => {
   }
 
   const user = db.prepare(
-    'SELECT id, email, password FROM users WHERE email = ?'
+    'SELECT id, email, password, active FROM users WHERE email = ?'
   ).get(email.toLowerCase().trim());
 
-  if (!user || user.password !== hashPwd(password)) {
+  if (!user || !user.active || user.password !== hashPwd(password)) {
     return res.status(401).json({ error: 'Credenziali non valide' });
   }
 
@@ -251,7 +507,7 @@ app.post('/api/auth/verify-otp', (req, res) => {
   }
 
   const user = db.prepare(
-    'SELECT id, email, otp_secret, otp_timestamp FROM users WHERE email = ?'
+    'SELECT id, email, name, role, can_export, allowed_modules, otp_secret, otp_timestamp FROM users WHERE email = ?'
   ).get(email.toLowerCase().trim());
 
   if (!user || !user.otp_secret || !user.otp_timestamp) {
@@ -274,9 +530,10 @@ app.post('/api/auth/verify-otp', (req, res) => {
     .run(user.id);
 
   const token = crypto.randomBytes(32).toString('hex');
-  console.log(`[AUTH] ✓ ${user.email} autenticato`);
+  db.prepare('INSERT INTO sessions (token, user_id) VALUES (?, ?)').run(token, user.id);
+  console.log(`[AUTH] ✓ ${user.email} autenticato (${user.role})`);
 
-  return res.json({ success: true, token, user: { id: user.id, email: user.email } });
+  return res.json({ success: true, token, user: serializeUser(user) });
 });
 
 // ── Route: POST /api/deploy ───────────────────────────────────────────────────
