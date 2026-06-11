@@ -448,12 +448,11 @@ export default function ABCMatrix() {
         </div>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 cursor-pointer transition-colors">
-            <Download className="w-4 h-4" /> Esporta Excel
+            <Upload className="w-4 h-4" /> Carica nuovo file
             <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
               ref={mainInputRef}
               onChange={e => { const f = e.target.files?.[0]; if (f) handleMainFile(f); e.target.value = ''; }} />
           </label>
-          <button onClick={handleExport} className="sr-only" />
           <button
             onClick={handleExport}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
@@ -664,19 +663,19 @@ export default function ABCMatrix() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Soglia A (% sopra media)</label>
+              <label className="text-xs font-medium text-slate-600">Soglia A (% relativa, es. 10)</label>
               <input type="number" value={thresholdA} onChange={e => setThresholdA(+e.target.value)}
                 className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Soglia C (% sotto media)</label>
+              <label className="text-xs font-medium text-slate-600">Soglia C (% relativa, es. 10)</label>
               <input type="number" value={thresholdC} onChange={e => setThresholdC(+e.target.value)}
                 className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
             </div>
           </div>
 
           <p className="text-[11px] text-slate-400">
-            Media pesata calcolata dai dati · A = ≥ +{thresholdA}% · C = ≤ -{thresholdC}%
+            Media pesata dai dati · A ≥ media×{(1 + thresholdA / 100).toFixed(2)} · C &lt; media×{(1 - thresholdC / 100).toFixed(2)}
           </p>
         </div>
       </div>

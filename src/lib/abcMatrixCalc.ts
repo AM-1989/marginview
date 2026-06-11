@@ -237,11 +237,15 @@ export function calculate(
       };
     });
 
-  // ── Margin classification ──────────────────────────────────────────────────
+  // ── Margin classification (multiplicative thresholds) ────────────────────
+  // thresholdA = 10 means "10% above avg" → soglia A = avg × 1.10
+  // thresholdC = 10 means "10% below avg" → soglia C = avg × 0.90
+  const sogliaA = weightedMargin * (1 + thresholdA / 100);
+  const sogliaC = weightedMargin * (1 - thresholdC / 100);
   const products: ClassifiedRow[] = withRev.map(r => {
     const rM: AbcRating =
-      r.marginPct >= weightedMargin + thresholdA ? 'A' :
-      r.marginPct >= weightedMargin - thresholdC ? 'B' : 'C';
+      r.marginPct >= sogliaA ? 'A' :
+      r.marginPct >= sogliaC ? 'B' : 'C';
     return { ...r, ratingMargin: rM, segment: `${r.ratingRevenue}${rM}` as SegmentKey };
   });
 
