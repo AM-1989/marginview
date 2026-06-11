@@ -218,12 +218,15 @@ function parseAbcNum(v: unknown): number | null {
 
 // ── Percentage-scale detector ─────────────────────────────────────────────────
 // XLSX stores percentage cells as decimals (0.109 = 10.9%).
-// Heuristic: if ALL non-zero values are within (-2, 2) → decimal scale → ×100.
+// Heuristic: if the MEDIAN absolute value < 2 → decimal scale → ×100.
+// Using median instead of max so that outliers (e.g. one product with >200% margin)
+// don't corrupt the detection for the entire column.
 function detectPctScale(values: (number | null)[]): 'decimal' | 'percentage' {
   const valids = values.filter((v): v is number => v !== null && isFinite(v) && v !== 0);
   if (valids.length === 0) return 'percentage';
-  const maxAbs = Math.max(...valids.map(Math.abs));
-  return maxAbs < 2 ? 'decimal' : 'percentage';
+  const sorted = [...valids].sort((a, b) => Math.abs(a) - Math.abs(b));
+  const median = sorted[Math.floor(sorted.length / 2)];
+  return Math.abs(median) < 2 ? 'decimal' : 'percentage';
 }
 
 // ── Column alias table ────────────────────────────────────────────────────────
