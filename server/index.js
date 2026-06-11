@@ -167,6 +167,13 @@ function buildActivationEmail(activationUrl, recipientEmail) {
     from:    `"MarginView" <${SMTP.from}>`,
     to:      recipientEmail,
     subject: 'Attiva il tuo account MarginView',
+    text:
+      `Attivazione account MarginView\n\n` +
+      `Sei stato invitato ad accedere a MarginView.\n` +
+      `Clicca (o copia) il link qui sotto per impostare la password e attivare l'account:\n\n` +
+      `${activationUrl}\n\n` +
+      `Il link è valido per 7 giorni.\n` +
+      `Se non hai richiesto questo invito, ignora questa email.\n`,
     html: `<!DOCTYPE html>
 <html lang="it">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
@@ -207,6 +214,10 @@ function buildOtpEmail(otp, recipientEmail) {
     from:    `"MarginView Security" <${SMTP.from}>`,
     to:      recipientEmail,
     subject: `${otp} — Il tuo codice di verifica MarginView`,
+    text:
+      `Il tuo codice OTP MarginView: ${otp}\n\n` +
+      `Valido per 2 minuti.\n` +
+      `Se non hai effettuato nessun tentativo di accesso, ignora questa email.\n`,
     html: `<!DOCTYPE html>
 <html lang="it">
 <head>
