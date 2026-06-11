@@ -261,29 +261,25 @@ function findCol(keys: string[], aliases: string[]): string | undefined {
   return undefined;
 }
 
-// ── Row-skip patterns ─────────────────────────────────────────────────────────
-// Rows whose ID field looks like a total/subtotal header row.
-const SKIP_PATTERNS = [
+// ── Total-row skip patterns (only exact matches on id/name fields) ────────────
+const TOTAL_PATTERNS = [
   /^totale?\b/i, /^subtotale?\b/i, /^grand.?total/i,
   /^somma\b/i, /^sommario/i, /^total\b/i, /^sub.?total/i,
-  /^#n\/a/i, /^n\/a$/i,
 ];
 
-function isSkippableId(id: string): boolean {
-  const s = id.trim();
-  if (!s) return true;  // empty ID → skip
-  return SKIP_PATTERNS.some(p => p.test(s));
+function isTotalRow(id: string): boolean {
+  return TOTAL_PATTERNS.some(p => p.test(id.trim()));
 }
 
 // ── parseGenericRows ──────────────────────────────────────────────────────────
 // Supports three data cases:
-//   A: Fatturato + Quantità + Costo Unitario  → costoTotale = unitCost × qty
-//   B: Fatturato + Margine %                  → costoTotale = fat × (1 - mPct)
-//   C: Fatturato + Margine €                  → costoTotale = fat - mEur
+//   A: Fatturato + Costo Totale  OR  Fatturato + Quantità + Costo Unitario
+//   B: Fatturato + Margine %
+//   C: Fatturato + Margine € (o "Profitto", "Utile", ecc.)
+//   fallback: solo Fatturato — margine=0 (compatibilità con file parziali)
 //
-// If none of these is available, warns and skips the row (never invents costs).
-//
-// Aggregates multiple rows with the same ID (e.g. multi-period data).
+// MAI ritorna [] per colonne non trovate: usa fallback come l'originale.
+// Aggrega più righe con stesso ID (dati multi-periodo).
 
 export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[] {
   if (rows.length === 0) return [];
@@ -307,177 +303,141 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
   dbg('Headers:', headers);
   dbg('Column mapping:', C);
 
-  // ── 2. Determine data case ─────────────────────────────────────────────────
-  const hasCaseA  = !!(C.revenue && (C.unitCost || C.totalCost) && (C.quantity || C.totalCost));
+  // ── 2. Determine best data mode ────────────────────────────────────────────
+  // hasCaseA: totalCost diretto OPPURE unitCost × quantity
+  const hasCaseA  = !!(C.revenue && (C.totalCost || (C.unitCost && C.quantity)));
   const hasCaseB  = !!(C.revenue && C.marginPct);
   const hasCaseC  = !!(C.revenue && C.marginEur);
-  const hasAmbig  = !!(C.revenue && C.marginAmbig);  // "Margine" column, scale unknown
+  const hasAmbig  = !!(C.revenue && C.marginAmbig);
 
-  const mode: 'A' | 'B' | 'C' | 'ambig' | 'none' =
+  const mode: 'A' | 'B' | 'C' | 'ambig' | 'fallback' =
     hasCaseA ? 'A' :
     hasCaseB ? 'B' :
     hasCaseC ? 'C' :
-    hasAmbig ? 'ambig' : 'none';
+    hasAmbig ? 'ambig' : 'fallback';
 
-  dbg(`Data mode: ${mode}  (A=cost, B=mPct%, C=mEur, ambig=margine col, none=insufficient)`);
+  dbg(`Data mode: ${mode}  (A=costo, B=mPct%, C=mEur€, ambig=col "Margine", fallback=solo fatturato)`);
 
-  if (mode === 'none') {
-    console.error(
-      '[ABC] Dati insufficienti: per calcolare la matrice ABC servono\n' +
-      '  - Fatturato + Margine %, oppure\n' +
-      '  - Fatturato + Margine €, oppure\n' +
-      '  - Fatturato + Quantità + Costo Unitario.\n' +
-      'Colonne rilevate:', headers.join(', '),
+  if (mode === 'fallback') {
+    console.warn(
+      '[ABC] Nessuna colonna costo/margine riconosciuta. Costo=0 per tutti i prodotti.\n' +
+      '  Colonne presenti: ' + headers.join(', ') + '\n' +
+      '  Colonne attese (una di queste): Margine %, Margine €, Costo Totale, ' +
+      'Costo Unitario+Quantità, Profitto, Utile',
     );
-    return [];
   }
 
-  // ── 3. For percentage columns: detect scale across all rows ───────────────
-  // (Do this once, not per-row, for reliable detection)
+  // ── 3. Percentage scale detection (una sola volta per file) ───────────────
+  // XLSX restituisce celle % come decimali: 0.109 = 10.9%.
+  // Se tutti i valori nella colonna sono < 2 → scala decimale → moltiplica ×100.
   let pctScale: 'decimal' | 'percentage' = 'percentage';
   if (mode === 'B' && C.marginPct) {
     const rawPcts = rows.map(r => parseAbcNum(r[C.marginPct!]));
     pctScale = detectPctScale(rawPcts);
-    dbg(`marginPct column "${C.marginPct}": detected scale = ${pctScale}${pctScale === 'decimal' ? ' (values ×100 applied)' : ''}`);
+    dbg(`Colonna "${C.marginPct}": scala ${pctScale}${pctScale === 'decimal' ? ' → valori ×100' : ''}`);
   }
-  let ambigScale: 'decimal' | 'percentage' | 'eur' = 'eur';
-  if (mode === 'ambig' && C.marginAmbig && C.revenue) {
+
+  // Per colonna "Margine" ambigua: se valori in range (-2,2) → % decimale;
+  // altrimenti assume EUR (non percentuale assoluta — sarebbe "Margine %").
+  let ambigIsDecimalPct = false;
+  if (mode === 'ambig' && C.marginAmbig) {
     const rawAmbig = rows.map(r => parseAbcNum(r[C.marginAmbig!]));
-    const revVals  = rows.map(r => parseAbcNum(r[C.revenue!]));
-    const maxAmbig = Math.max(...rawAmbig.filter((v): v is number => v !== null).map(Math.abs));
-    const maxRev   = Math.max(...revVals.filter((v): v is number => v !== null).map(Math.abs));
-    if (maxAmbig < 2) {
-      ambigScale = 'decimal';
-    } else if (maxAmbig < maxRev * 0.95) {
-      // Much smaller than revenue → it's a percentage (0–100 scale)
-      ambigScale = 'percentage';
-    } else {
-      // Similar magnitude to revenue → it's euro
-      ambigScale = 'eur';
-    }
-    dbg(`ambig "Margine" column scale detected: ${ambigScale}`);
+    ambigIsDecimalPct = detectPctScale(rawAmbig) === 'decimal';
+    dbg(`Colonna ambigua "${C.marginAmbig}": ${ambigIsDecimalPct ? '% decimale → ×100' : 'EUR (profitto diretto)'}`);
   }
 
-  // ── 4. Parse each row ──────────────────────────────────────────────────────
-  const rawId     = (r: Record<string, unknown>) =>
-    C.id ? String(r[C.id] ?? '').trim() : '';
-
+  // ── 4. Parse ogni riga ────────────────────────────────────────────────────
   interface ParsedRow {
-    id:       string;
-    name:     string;
-    category: string;
-    brand:    string;
-    revenue:  number;
-    cost:     number;
-    profit:   number;
+    id: string; name: string; category: string; brand: string;
+    revenue: number; cost: number; profit: number;
   }
 
   const parsed: ParsedRow[] = [];
-  let skippedEmpty   = 0;
-  let skippedTotal   = 0;
-  let skippedNoCost  = 0;
+  let skippedTotal = 0;
 
   for (let i = 0; i < rows.length; i++) {
-    const r   = rows[i];
-    const rid = rawId(r);
+    const r = rows[i];
 
-    // Skip blank or total/subtotal rows
-    if (isSkippableId(rid)) {
-      if (!rid) skippedEmpty++;
-      else      skippedTotal++;
-      continue;
-    }
+    // ID: se la colonna non esiste usa il nome, poi il numero di riga
+    const rawId =
+      C.id   ? String(r[C.id]   ?? '').trim() :
+      C.name ? String(r[C.name] ?? '').trim() :
+      `P${i + 1}`;
+    const rowId = rawId || `P${i + 1}`;
 
-    // Revenue
-    const rev = parseAbcNum(C.revenue ? r[C.revenue] : null);
-    if (rev === null || rev <= 0) { skippedEmpty++; continue; }
+    // Salta righe "Totale / Grand Total / Somma"
+    if (isTotalRow(rowId)) { skippedTotal++; continue; }
 
-    // Compute cost & profit based on mode
-    let cost:   number | null = null;
-    let profit: number | null = null;
+    // Fatturato — usa 0 se manca (come originale), poi filtra sotto
+    const rev = C.revenue ? (parseAbcNum(r[C.revenue]) ?? 0) : 0;
+
+    // Calcola costo e profitto in base al mode
+    let cost   = 0;
+    let profit = 0;
 
     if (mode === 'A') {
       if (C.totalCost) {
-        // Direct total cost column
-        cost = parseAbcNum(r[C.totalCost]);
-      } else {
-        // Unit cost × quantity
-        const qty     = parseAbcNum(C.quantity  ? r[C.quantity]  : null);
-        const unitC   = parseAbcNum(C.unitCost  ? r[C.unitCost]  : null);
-        if (qty !== null && unitC !== null) {
-          cost = unitC * qty;
-        }
+        cost = parseAbcNum(r[C.totalCost]) ?? 0;
+      } else if (C.unitCost && C.quantity) {
+        const unitC = parseAbcNum(r[C.unitCost]) ?? 0;
+        const qty   = parseAbcNum(r[C.quantity])  ?? 0;
+        cost = unitC * qty;
       }
-      if (cost !== null) profit = rev - cost;
+      profit = rev - cost;
 
     } else if (mode === 'B') {
-      // Fatturato + Margine %
-      let mPct = parseAbcNum(C.marginPct ? r[C.marginPct] : null);
-      if (mPct !== null) {
-        if (pctScale === 'decimal') mPct = mPct * 100; // 0.109 → 10.9
-        // mPct is now in percentage points (e.g. 10.9 for 10.9%)
-        profit = rev * (mPct / 100);
-        cost   = rev - profit;
-      }
+      let mPct = parseAbcNum(C.marginPct ? r[C.marginPct] : null) ?? 0;
+      if (pctScale === 'decimal') mPct = mPct * 100;
+      profit = rev * (mPct / 100);
+      cost   = rev - profit;
 
     } else if (mode === 'C') {
-      // Fatturato + Margine €
-      const mEur = parseAbcNum(C.marginEur ? r[C.marginEur] : null);
-      if (mEur !== null) {
-        profit = mEur;
+      profit = parseAbcNum(C.marginEur ? r[C.marginEur] : null) ?? 0;
+      cost   = rev - profit;
+
+    } else if (mode === 'ambig') {
+      const raw = parseAbcNum(C.marginAmbig ? r[C.marginAmbig] : null) ?? 0;
+      if (ambigIsDecimalPct) {
+        profit = rev * (raw * 100 / 100);  // raw=0.30 → 30% → profit=rev*0.30
+        cost   = rev - profit;
+      } else {
+        // Tratta come EUR
+        profit = raw;
         cost   = rev - profit;
       }
 
-    } else if (mode === 'ambig') {
-      // "Margine" column — scale determined above
-      const raw = parseAbcNum(C.marginAmbig ? r[C.marginAmbig] : null);
-      if (raw !== null) {
-        if (ambigScale === 'eur') {
-          profit = raw;
-          cost   = rev - profit;
-        } else {
-          const mPct = ambigScale === 'decimal' ? raw * 100 : raw;
-          profit = rev * (mPct / 100);
-          cost   = rev - profit;
-        }
-      }
+    } else {
+      // fallback: solo fatturato, margine ignoto
+      cost   = 0;
+      profit = 0;
     }
 
-    if (cost === null || profit === null) {
-      // Cannot compute economics for this row — skip with warning
-      skippedNoCost++;
-      if (skippedNoCost <= 5) {
-        dbg(`Row ${i + 1} (id="${rid}"): skipped — cannot compute cost/profit in mode=${mode}`);
-      }
-      continue;
-    }
-
-    const name     = C.name     ? String(r[C.name]     ?? '').trim() : rid;
+    const name     = C.name     ? String(r[C.name]     ?? '').trim() : rowId;
     const category = C.category ? String(r[C.category] ?? '').trim() : '';
     const brand    = C.brand    ? String(r[C.brand]    ?? '').trim() : '';
 
-    parsed.push({ id: rid, name, category, brand, revenue: rev, cost, profit });
+    // Filtra righe senza fatturato e senza profitto (come originale)
+    if (rev > 0 || profit !== 0) {
+      parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit });
+    }
   }
 
-  // ── 5. Aggregate by product ID ────────────────────────────────────────────
-  // Multiple rows with same ID (e.g. different months) are summed.
+  // ── 5. Aggrega per ID prodotto ────────────────────────────────────────────
   const aggMap = new Map<string, ParsedRow>();
   for (const p of parsed) {
-    const k = p.id;
-    if (!aggMap.has(k)) {
-      aggMap.set(k, { ...p });
+    if (!aggMap.has(p.id)) {
+      aggMap.set(p.id, { ...p });
     } else {
-      const a = aggMap.get(k)!;
+      const a = aggMap.get(p.id)!;
       a.revenue += p.revenue;
       a.cost    += p.cost;
       a.profit  += p.profit;
     }
   }
 
-  // ── 6. Build AnalysisRow[] with validated marginPct ───────────────────────
+  // ── 6. Costruisce AnalysisRow[] con marginPct ricalcolato ─────────────────
   const result: AnalysisRow[] = [];
   for (const a of aggMap.values()) {
-    const marginPct = a.revenue > 0 ? a.profit / a.revenue * 100 : 0;
     result.push({
       id:        a.id,
       name:      a.name,
@@ -486,34 +446,33 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
       revenue:   a.revenue,
       cost:      a.cost,
       profit:    a.profit,
-      marginPct,
+      marginPct: a.revenue > 0 ? a.profit / a.revenue * 100 : 0,
     });
   }
 
-  // ── 7. Debug summary ──────────────────────────────────────────────────────
+  // ── 7. Riepilogo debug ────────────────────────────────────────────────────
   const totalRev  = result.reduce((s, r) => s + r.revenue, 0);
   const totalCost = result.reduce((s, r) => s + r.cost,    0);
   const totalProf = result.reduce((s, r) => s + r.profit,  0);
   const wAvgMarg  = totalRev > 0 ? totalProf / totalRev * 100 : 0;
 
   dbg('─── Parse summary ───────────────────────────────────────────');
-  dbg(`Raw rows        : ${rows.length}`);
-  dbg(`Skipped (empty) : ${skippedEmpty}`);
-  dbg(`Skipped (totals): ${skippedTotal}`);
-  dbg(`Skipped (no cost): ${skippedNoCost}`);
-  dbg(`Parsed rows     : ${parsed.length}`);
-  dbg(`Products (agg.) : ${result.length}`);
-  dbg(`Fatturato totale: ${totalRev.toFixed(2)}`);
-  dbg(`Costo totale    : ${totalCost.toFixed(2)}`);
-  dbg(`Margine €       : ${totalProf.toFixed(2)}`);
-  dbg(`Margine medio % : ${wAvgMarg.toFixed(4)}%`);
+  dbg(`Righe raw        : ${rows.length}`);
+  dbg(`Righe "Totale"   : ${skippedTotal} (saltate)`);
+  dbg(`Righe valide     : ${parsed.length}`);
+  dbg(`Prodotti (agg.)  : ${result.length}`);
+  dbg(`Fatturato totale : ${totalRev.toFixed(2)}`);
+  dbg(`Costo totale     : ${totalCost.toFixed(2)}`);
+  dbg(`Margine €        : ${totalProf.toFixed(2)}`);
+  dbg(`Margine medio %  : ${wAvgMarg.toFixed(4)}%`);
 
-  if (totalCost === 0 && mode !== 'B') {
-    console.warn('[ABC] ATTENZIONE: Costo totale = 0. Il calcolo della marginalità potrebbe essere errato.');
+  if (totalCost === 0 && mode !== 'B' && mode !== 'fallback') {
+    console.warn('[ABC] ATTENZIONE: Costo totale = 0. Verificare il nome della colonna costo nel file Excel.');
   }
-  if (Math.abs(wAvgMarg - 100) < 1 && result.length > 0) {
-    console.warn('[ABC] ATTENZIONE: Margine medio ≈ 100%. Probabile mancato riconoscimento colonna costo.');
+  if (result.length > 10 && Math.abs(wAvgMarg - 100) < 1) {
+    console.warn('[ABC] ATTENZIONE: Margine medio ≈ 100%. Probabile errore parsing colonna costo.');
   }
+  dbg('─────────────────────────────────────────────────────────────');
 
   return result;
 }
