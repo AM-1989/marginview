@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import {
   calculate, parseGenericRows, whatIfSimulate,
-  buildMigration, SEGMENTS,
+  buildMigration, aggregateByCategory, SEGMENTS,
   type AnalysisRow, type ClassifiedRow, type SegmentKey, type MigrationSummary,
 } from '../lib/abcMatrixCalc';
 
@@ -214,6 +214,7 @@ export default function ABCMatrix() {
   const [heatSearch, setHeatSearch]           = useState('');
   const [alertFilter, setAlertFilter]         = useState<'all' | 'critical' | 'warning' | 'opportunity'>('all');
   const [expandedSegments, setExpandedSegments] = useState<Set<SegmentKey>>(new Set());
+  const [parseWarnings, setParseWarnings]       = useState<string[]>([]);
   const uploadInputRef  = useRef<HTMLInputElement>(null);
   const mainInputRef    = useRef<HTMLInputElement>(null);
 
@@ -223,12 +224,21 @@ export default function ABCMatrix() {
     [rows, thresholdA, thresholdC, customMarginOn, customMarginVal],
   );
 
+  const categoryMetrics = useMemo(
+    () => calculate(aggregateByCategory(rows ?? []), thresholdA, thresholdC, customMarginOn ? customMarginVal : null),
+    [rows, thresholdA, thresholdC, customMarginOn, customMarginVal],
+  );
+
+  const activeMetrics = activeTab === 'categorie' ? categoryMetrics : metrics;
+
   const { products, totalRevenue, totalProfit, weightedMargin,
     gini, paretoIndex, starRevenuePct, riskRevenuePct, belowAvgCount,
-    matrix, paretoData, categories, health } = metrics;
+    matrix, paretoData, categories, health, warnings: calcWarnings, marginDegenerate } = activeMetrics;
+
+  const allWarnings = [...parseWarnings, ...calcWarnings];
 
   const whatIf     = useMemo(() => whatIfSimulate(products, whatIfExcl), [products, whatIfExcl]);
-  const whatIfBase = useMemo(() => whatIfSimulate(products, []), [products]);
+  const whatIfBase = useMemo(() => whatIfSimulate(products, []),         [products]);
 
   const migration: MigrationSummary | null = useMemo(
     () => compRows ? buildMigration(compRows, products) : null,
@@ -267,21 +277,25 @@ export default function ABCMatrix() {
   const alerts = useMemo(() => {
     const result: { type: 'critical' | 'warning' | 'opportunity'; product: ClassifiedRow; message: string }[] = [];
     for (const p of products) {
-      if (p.ratingRevenue === 'A' && p.marginPct < weightedMargin) {
-        result.push({ type: 'critical',     product: p, message: `Alto fatturato ma margine ${fmtPct(p.marginPct)} (sotto media ${fmtPct(weightedMargin)})` });
+      // Anti-false-positive: skip alerts on degenerate data (weightedMargin=0)
+      if (marginDegenerate) continue;
+
+      if (p.ratingRevenue === 'A' && p.marginPct < weightedMargin && Math.abs(weightedMargin) >= 0.01) {
+        result.push({ type: 'critical',    product: p, message: `Alto fatturato ma margine ${fmtPct(p.marginPct)} (sotto media ${fmtPct(weightedMargin)})` });
       } else if (p.marginPct < 0) {
-        result.push({ type: 'critical',     product: p, message: `Margine negativo (${fmtPct(p.marginPct)}) — perdita su ogni vendita` });
+        result.push({ type: 'critical',    product: p, message: `Margine negativo (${fmtPct(p.marginPct)}) — perdita su ogni vendita` });
       } else if (p.ratingRevenue === 'B' && p.marginPct < weightedMargin * 0.5 && p.marginPct >= 0) {
-        result.push({ type: 'warning',      product: p, message: `Fatturato medio con margine critico ${fmtPct(p.marginPct)}` });
-      } else if (p.ratingMargin === 'A' && p.ratingRevenue === 'C') {
-        result.push({ type: 'opportunity',  product: p, message: `Alto margine (${fmtPct(p.marginPct)}) con volume basso — potenziale inespresso` });
+        result.push({ type: 'warning',     product: p, message: `Fatturato medio con margine critico ${fmtPct(p.marginPct)}` });
+      } else if (p.ratingMargin === 'A' && p.ratingRevenue === 'C' && Math.abs(p.marginPct) >= 0.01) {
+        // Anti-false-positive: only emit "opportunity" if margin is genuinely non-zero
+        result.push({ type: 'opportunity', product: p, message: `Alto margine (${fmtPct(p.marginPct)}) con volume basso — potenziale inespresso` });
       }
     }
     return result.sort((a, b) => {
       const ord = { critical: 0, warning: 1, opportunity: 2 };
       return ord[a.type] !== ord[b.type] ? ord[a.type] - ord[b.type] : b.product.revenue - a.product.revenue;
     });
-  }, [products, weightedMargin]);
+  }, [products, weightedMargin, marginDegenerate]);
 
   const alertsFiltered = useMemo(() => {
     if (alertFilter === 'all')          return alerts;
@@ -363,18 +377,22 @@ export default function ABCMatrix() {
     setLoadingFile(true);
     try {
       const rawRows = await readExcel(file);
-      const parsed  = parseGenericRows(rawRows);
-      setRows(parsed);
+      const result  = parseGenericRows(rawRows);
+      setRows(result.rows);
+      setParseWarnings(result.warnings);
       setSelectedCell(null);
+      if (result.warnings.length > 0) {
+        console.warn('[ABC] Parse warnings:', result.warnings);
+      }
     } catch { alert('Errore lettura file. Assicurati che sia un Excel valido.'); }
     finally { setLoadingFile(false); }
   }
 
   async function handleCompFile(file: File) {
     try {
-      const rawRows = await readExcel(file);
-      const parsed  = parseGenericRows(rawRows);
-      const calcComp = calculate(parsed, thresholdA, thresholdC, customMarginOn ? customMarginVal : null);
+      const rawRows  = await readExcel(file);
+      const result   = parseGenericRows(rawRows);
+      const calcComp = calculate(result.rows, thresholdA, thresholdC, customMarginOn ? customMarginVal : null);
       setCompRows(calcComp.products);
     } catch { alert('Errore lettura file di confronto.'); }
   }
@@ -479,10 +497,22 @@ export default function ABCMatrix() {
         ))}
       </div>
 
+      {/* ── Warnings banner ───────────────────────────────────────────────── */}
+      {allWarnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-1">
+          <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> Avvisi parsing / dati
+          </p>
+          {allWarnings.map((w, i) => (
+            <p key={i} className="text-xs text-amber-700">{w}</p>
+          ))}
+        </div>
+      )}
+
       {/* ── KPI 4 large ───────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { icon: Package,     label: 'PRODOTTI',         value: products.length.toString(),                                    sub: `${categories.length} categorie` },
+          { icon: Package,     label: activeTab === 'categorie' ? 'CATEGORIE' : 'PRODOTTI', value: products.length.toString(), sub: activeTab === 'categorie' ? `${metrics.categories.length} categorie totali` : `${categories.length} categorie` },
           { icon: TrendingUp,  label: 'FATTURATO TOTALE', value: fmtK(totalRevenue),                                           sub: `Costo: ${fmtK(totalRevenue - totalProfit)}` },
           { icon: ChartColumn, label: 'MARGINE MEDIO',    value: products.length ? fmtPct(weightedMargin) : 'N/A',             sub: `Profitto: ${fmtK(totalProfit)}` },
           { icon: Target,      label: 'STAR (A/A)',       value: `${matrix.AA.count} / ${products.filter(p => p.ratingRevenue === 'A').length} classe A`, sub: `${fmtPct(starRevenuePct)} del fatturato` },
@@ -518,8 +548,8 @@ export default function ABCMatrix() {
         ))}
       </div>
 
-      {/* ── Confronto tra periodi ─────────────────────────────────────────── */}
-      {!migration ? (
+      {/* ── Confronto tra periodi (prodotti only) ────────────────────────── */}
+      {activeTab !== 'categorie' && !migration ? (
         <div
           className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center cursor-pointer hover:border-slate-300 transition-colors bg-white"
           onClick={() => document.getElementById('comp-file-input')?.click()}
@@ -532,7 +562,7 @@ export default function ABCMatrix() {
           <input id="comp-file-input" type="file" accept=".xlsx,.xls,.csv" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleCompFile(f); e.target.value = ''; }} />
         </div>
-      ) : (
+      ) : activeTab !== 'categorie' && migration ? (
         <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500 flex items-center gap-2">
@@ -570,7 +600,7 @@ export default function ABCMatrix() {
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* ── Matrix + Settings ─────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-[1fr_300px] gap-6">
@@ -752,8 +782,8 @@ export default function ABCMatrix() {
           <div className="text-center space-y-1">
             <div className={`text-6xl font-bold tabular-nums ${health.total >= 70 ? 'text-emerald-600' : health.total >= 45 ? 'text-amber-500' : 'text-red-500'}`}>{health.total}</div>
             <div className="text-sm text-slate-500">su 100</div>
-            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold mt-2 ${health.total >= 70 ? 'border-emerald-300 text-emerald-700' : health.total >= 45 ? 'border-amber-300 text-amber-700' : 'border-red-300 text-red-700'}`}>
-              {health.total >= 70 ? 'A — Ottimo' : health.total >= 45 ? 'B — Nella norma' : health.total >= 25 ? 'C — Da migliorare' : 'D — Critico'}
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold mt-2 ${health.total >= 80 ? 'border-emerald-300 text-emerald-700' : health.total >= 65 ? 'border-amber-300 text-amber-700' : 'border-red-300 text-red-700'}`}>
+              {health.total >= 80 ? 'A — Eccellente' : health.total >= 65 ? 'B — Buono' : health.total >= 45 ? 'C — Da migliorare' : 'D — Critico'}
             </span>
           </div>
           <div className="space-y-3 pt-2 border-t border-slate-100">
@@ -979,8 +1009,8 @@ export default function ABCMatrix() {
         </div>
       </div>
 
-      {/* ── Heatmap per Codice Articolo ───────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+      {/* ── Heatmap per Codice Articolo (prodotti only) ───────────────────── */}
+      {activeTab !== 'categorie' && <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap per Codice Articolo</h3>
@@ -1065,7 +1095,7 @@ export default function ABCMatrix() {
             <div className="text-center py-8 text-slate-400 text-sm">Nessun risultato</div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* ── Quadrante Strategico + Alert Automatici ────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-6">

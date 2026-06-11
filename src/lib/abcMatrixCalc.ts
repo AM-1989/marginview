@@ -68,22 +68,34 @@ export interface ActionItem {
 }
 
 export interface AbcMetrics {
-  products:        ClassifiedRow[];
-  totalRevenue:    number;
-  totalProfit:     number;
-  weightedMargin:  number;
-  gini:            number;
-  paretoIndex:     number;
-  starRevenuePct:  number;
-  riskRevenuePct:  number;
-  belowAvgCount:   number;
-  matrix:          Record<SegmentKey, MatrixCell>;
-  paretoData:      ParetoPoint[];
-  categories:      CategoryStat[];
-  health:          HealthScore;
-  actions:         ActionItem[];
-  // Diagnostic info from the last parse (undefined if using aggregateRows path)
-  parseWarnings?: string[];
+  products:         ClassifiedRow[];
+  totalRevenue:     number;
+  totalCost:        number;
+  totalProfit:      number;
+  weightedMargin:   number;
+  gini:             number;
+  paretoIndex:      number;
+  starRevenuePct:   number;
+  riskRevenuePct:   number;
+  belowAvgCount:    number;
+  matrix:           Record<SegmentKey, MatrixCell>;
+  paretoData:       ParetoPoint[];
+  categories:       CategoryStat[];
+  health:           HealthScore;
+  actions:          ActionItem[];
+  warnings:         string[];   // calculation-time warnings (degenerate data, etc.)
+  marginDegenerate: boolean;    // true when weightedMargin ≈ 0 → alerts suppressed
+}
+
+export interface ParseResult {
+  rows:               AnalysisRow[];
+  rawRowsCount:       number;
+  validRowsCount:     number;    // = rows.length after aggregation
+  excludedRowsCount:  number;    // excluded: revenue <= 0 or NaN
+  skippedTotalCount:  number;    // excluded: total/summary rows
+  skippedNoCostCount: number;    // excluded: no cost/margin data available
+  mode:               'A' | 'B' | 'C' | 'ambig' | 'fallback';
+  warnings:           string[];
 }
 
 // ── Segment metadata ──────────────────────────────────────────────────────────
@@ -144,11 +156,34 @@ export function aggregateRows(rows: RowExcel[]): AnalysisRow[] {
   return [...map.values()];
 }
 
+// ── aggregateByCategory: groups AnalysisRow[] into one row per category ───────
+// Used by the Categories tab to run a fresh ABC analysis on category-level data.
+
+export function aggregateByCategory(rows: AnalysisRow[]): AnalysisRow[] {
+  const map = new Map<string, AnalysisRow>();
+  for (const r of rows) {
+    const cat = r.category || r.brand || '(N/D)';
+    if (!map.has(cat)) {
+      map.set(cat, {
+        id: cat, name: cat, category: cat, brand: '',
+        revenue: 0, cost: 0, profit: 0, marginPct: 0,
+      });
+    }
+    const a = map.get(cat)!;
+    a.revenue += r.revenue;
+    a.cost    += r.cost;
+    a.profit  += r.profit;
+  }
+  for (const a of map.values()) {
+    a.marginPct = a.revenue > 0 ? a.profit / a.revenue * 100 : 0;
+  }
+  return [...map.values()];
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // PARSING GENERIC EXCEL ROWS
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── Debug flag ────────────────────────────────────────────────────────────────
 const DEBUG_ABC = true;
 function dbg(...args: unknown[]) { if (DEBUG_ABC) console.log('[ABC]', ...args); }
 
@@ -169,27 +204,21 @@ function parseAbcNum(v: unknown): number | null {
   if (s.includes('.') && s.includes(',')) {
     s = s.replace(/\./g, '').replace(',', '.');
   } else if (s.includes(',') && !s.includes('.')) {
-    // "1234,56" → decimal comma only
     s = s.replace(',', '.');
   }
-  // English "1234.56" → no transformation needed
 
   const n = parseFloat(s);
   if (isNaN(n)) return null;
 
-  // If the cell content had a literal "%" sign (e.g. "10.9%"), the value is
-  // already in percentage-point scale (10.9 means 10.9%).
-  // If it was a pure number like 0.109, the caller will decide the scale.
-  if (hasPctSign) return n;  // already in pct-point scale: "10.9%" → 10.9
+  // If the cell had a literal "%" sign ("10.9%"), the value is already pct-point scale.
+  // If it was a pure JS number like 0.109, the caller decides the scale.
+  if (hasPctSign) return n;
   return n;
 }
 
 // ── Percentage-scale detector ─────────────────────────────────────────────────
-// Excel stores percentage cells as decimals (0.109 = 10.9%).
-// XLSX.sheet_to_json returns the underlying decimal.
-// Heuristic: if ALL non-zero values in a column are within (-2, 2),
-// the column is in 0-1 decimal scale → multiply by 100 to get pct points.
-// This works for any typical business (margins 1%-200%).
+// XLSX stores percentage cells as decimals (0.109 = 10.9%).
+// Heuristic: if ALL non-zero values are within (-2, 2) → decimal scale → ×100.
 function detectPctScale(values: (number | null)[]): 'decimal' | 'percentage' {
   const valids = values.filter((v): v is number => v !== null && isFinite(v) && v !== 0);
   if (valids.length === 0) return 'percentage';
@@ -198,7 +227,6 @@ function detectPctScale(values: (number | null)[]): 'decimal' | 'percentage' {
 }
 
 // ── Column alias table ────────────────────────────────────────────────────────
-// Important: aliases are compared with exact lowercase match to column headers.
 const COL_ALIASES: Record<string, string[]> = {
   id: [
     'codice articolo', 'codice referenza/servizio', 'codice referenza',
@@ -218,30 +246,24 @@ const COL_ALIASES: Record<string, string[]> = {
     'quantità venduta', 'quantita venduta', 'quantità', 'quantita',
     'qty', 'quantity', 'pezzi', 'volume',
   ],
-  // Unit cost — present alongside quantity; total = unitCost × qty
   unitCost: [
     'costo unitario/tariffa', 'costo unitario / tariffa',
     'costo unitario', 'costo medio', 'tariffa', 'unit cost', 'unitcost',
     'costo/unità', 'costo per unità', 'costo unit.',
   ],
-  // Total cost — use directly, do NOT multiply by qty
   totalCost: [
     'costo totale', 'costi totali', 'total cost', 'costo variabile totale',
     'costo', 'costi',
   ],
-  // Margin in percentage points (e.g. "10.9" or "10.9%")
-  // XLSX may return 0.109 for a 10.9%-formatted cell — we normalise below.
   marginPct: [
     'margine %', 'margine%', 'margine (%)', 'margine percentuale',
     'margine_pct', 'margin %', 'margin%', 'marginepct', 'margin_pct',
     'margine pct', '% margine', 'margine %.',
   ],
-  // Margin in euro — "Profitto", "Margine €", "Utile", etc.
   marginEur: [
     'margine €', 'margine euro', 'profitto', 'profit', 'utile',
     'contribuzione', 'gross profit', 'margine lordo', 'margine netto',
   ],
-  // "Margine" alone is ambiguous — try as EUR first, normalise later
   marginAmbig: [
     'margine',
   ],
@@ -261,7 +283,7 @@ function findCol(keys: string[], aliases: string[]): string | undefined {
   return undefined;
 }
 
-// ── Total-row skip patterns (only exact matches on id/name fields) ────────────
+// ── Total-row skip patterns ───────────────────────────────────────────────────
 const TOTAL_PATTERNS = [
   /^totale?\b/i, /^subtotale?\b/i, /^grand.?total/i,
   /^somma\b/i, /^sommario/i, /^total\b/i, /^sub.?total/i,
@@ -276,13 +298,21 @@ function isTotalRow(id: string): boolean {
 //   A: Fatturato + Costo Totale  OR  Fatturato + Quantità + Costo Unitario
 //   B: Fatturato + Margine %
 //   C: Fatturato + Margine € (o "Profitto", "Utile", ecc.)
-//   fallback: solo Fatturato — margine=0 (compatibilità con file parziali)
 //
-// MAI ritorna [] per colonne non trovate: usa fallback come l'originale.
-// Aggrega più righe con stesso ID (dati multi-periodo).
+// FORBIDDEN fallbacks — will never happen:
+//   ❌ costoTotale = fatturato  (margin = 0)
+//   ❌ costoTotale = 0          (margin = 100%)
+//   ❌ marginePct = 0 invented
+//
+// Rows with missing economic data are skipped and counted in skippedNoCostCount.
 
-export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[] {
-  if (rows.length === 0) return [];
+export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
+  const emptyResult: ParseResult = {
+    rows: [], rawRowsCount: 0, validRowsCount: 0,
+    excludedRowsCount: 0, skippedTotalCount: 0, skippedNoCostCount: 0,
+    mode: 'fallback', warnings: [],
+  };
+  if (rows.length === 0) return emptyResult;
 
   // ── 1. Detect columns ──────────────────────────────────────────────────────
   const headers = Object.keys(rows[0]);
@@ -304,32 +334,31 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
   dbg('Column mapping:', C);
 
   // ── 2. Determine best data mode ────────────────────────────────────────────
-  // hasCaseA: totalCost diretto OPPURE unitCost × quantity
   const hasCaseA  = !!(C.revenue && (C.totalCost || (C.unitCost && C.quantity)));
   const hasCaseB  = !!(C.revenue && C.marginPct);
   const hasCaseC  = !!(C.revenue && C.marginEur);
   const hasAmbig  = !!(C.revenue && C.marginAmbig);
 
-  const mode: 'A' | 'B' | 'C' | 'ambig' | 'fallback' =
+  const mode: ParseResult['mode'] =
     hasCaseA ? 'A' :
     hasCaseB ? 'B' :
     hasCaseC ? 'C' :
     hasAmbig ? 'ambig' : 'fallback';
 
-  dbg(`Data mode: ${mode}  (A=costo, B=mPct%, C=mEur€, ambig=col "Margine", fallback=solo fatturato)`);
+  dbg(`Data mode: ${mode}  (A=costo, B=mPct%, C=mEur€, ambig=col "Margine", fallback=nessuna colonna)`);
+
+  const warnings: string[] = [];
 
   if (mode === 'fallback') {
-    console.warn(
-      '[ABC] Nessuna colonna costo/margine riconosciuta. Costo=0 per tutti i prodotti.\n' +
-      '  Colonne presenti: ' + headers.join(', ') + '\n' +
-      '  Colonne attese (una di queste): Margine %, Margine €, Costo Totale, ' +
-      'Costo Unitario+Quantità, Profitto, Utile',
+    warnings.push(
+      'Nessuna colonna costo/margine riconosciuta. ' +
+      'Colonne presenti: ' + headers.join(', ') + '. ' +
+      'Attese (una di queste): Margine %, Margine €, Costo Totale, Costo Unitario+Quantità, Profitto, Utile.',
     );
+    console.warn('[ABC]', warnings[0]);
   }
 
-  // ── 3. Percentage scale detection (una sola volta per file) ───────────────
-  // XLSX restituisce celle % come decimali: 0.109 = 10.9%.
-  // Se tutti i valori nella colonna sono < 2 → scala decimale → moltiplica ×100.
+  // ── 3. Percentage scale detection (once per file) ─────────────────────────
   let pctScale: 'decimal' | 'percentage' = 'percentage';
   if (mode === 'B' && C.marginPct) {
     const rawPcts = rows.map(r => parseAbcNum(r[C.marginPct!]));
@@ -337,8 +366,6 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
     dbg(`Colonna "${C.marginPct}": scala ${pctScale}${pctScale === 'decimal' ? ' → valori ×100' : ''}`);
   }
 
-  // Per colonna "Margine" ambigua: se valori in range (-2,2) → % decimale;
-  // altrimenti assume EUR (non percentuale assoluta — sarebbe "Margine %").
   let ambigIsDecimalPct = false;
   if (mode === 'ambig' && C.marginAmbig) {
     const rawAmbig = rows.map(r => parseAbcNum(r[C.marginAmbig!]));
@@ -346,83 +373,91 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
     dbg(`Colonna ambigua "${C.marginAmbig}": ${ambigIsDecimalPct ? '% decimale → ×100' : 'EUR (profitto diretto)'}`);
   }
 
-  // ── 4. Parse ogni riga ────────────────────────────────────────────────────
+  // ── 4. Parse every row ────────────────────────────────────────────────────
   interface ParsedRow {
     id: string; name: string; category: string; brand: string;
     revenue: number; cost: number; profit: number;
   }
 
   const parsed: ParsedRow[] = [];
-  let skippedTotal = 0;
+  let skippedTotal   = 0;
+  let skippedNoCost  = 0;
+  let excludedNoRev  = 0;
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
 
-    // ID: se la colonna non esiste usa il nome, poi il numero di riga
+    // ID fallback: id column → name column → row number
     const rawId =
       C.id   ? String(r[C.id]   ?? '').trim() :
       C.name ? String(r[C.name] ?? '').trim() :
       `P${i + 1}`;
     const rowId = rawId || `P${i + 1}`;
 
-    // Salta righe "Totale / Grand Total / Somma"
+    // Skip total/summary rows
     if (isTotalRow(rowId)) { skippedTotal++; continue; }
 
-    // Fatturato — usa 0 se manca (come originale), poi filtra sotto
+    // Revenue — must be positive (spec: fatturato > 0 obbligatorio)
     const rev = C.revenue ? (parseAbcNum(r[C.revenue]) ?? 0) : 0;
+    if (!(rev > 0)) { excludedNoRev++; continue; }
 
-    // Calcola costo e profitto in base al mode
+    // Compute cost and profit — FORBIDDEN to fall back to invented values
     let cost   = 0;
     let profit = 0;
 
     if (mode === 'A') {
+      let rawCost: number | null = null;
       if (C.totalCost) {
-        cost = parseAbcNum(r[C.totalCost]) ?? 0;
+        rawCost = parseAbcNum(r[C.totalCost]);
       } else if (C.unitCost && C.quantity) {
-        const unitC = parseAbcNum(r[C.unitCost]) ?? 0;
-        const qty   = parseAbcNum(r[C.quantity])  ?? 0;
-        cost = unitC * qty;
+        const unitC = parseAbcNum(r[C.unitCost]);
+        const qty   = parseAbcNum(r[C.quantity]);
+        if (unitC !== null && qty !== null) rawCost = unitC * qty;
       }
+      if (rawCost === null) { skippedNoCost++; continue; }
+      cost   = rawCost;
       profit = rev - cost;
 
     } else if (mode === 'B') {
-      let mPct = parseAbcNum(C.marginPct ? r[C.marginPct] : null) ?? 0;
+      const rawPct = parseAbcNum(C.marginPct ? r[C.marginPct] : null);
+      if (rawPct === null) { skippedNoCost++; continue; }
+      let mPct = rawPct;
       if (pctScale === 'decimal') mPct = mPct * 100;
       profit = rev * (mPct / 100);
       cost   = rev - profit;
 
     } else if (mode === 'C') {
-      profit = parseAbcNum(C.marginEur ? r[C.marginEur] : null) ?? 0;
+      const rawProfit = parseAbcNum(C.marginEur ? r[C.marginEur] : null);
+      if (rawProfit === null) { skippedNoCost++; continue; }
+      profit = rawProfit;
       cost   = rev - profit;
 
     } else if (mode === 'ambig') {
-      const raw = parseAbcNum(C.marginAmbig ? r[C.marginAmbig] : null) ?? 0;
+      const raw = parseAbcNum(C.marginAmbig ? r[C.marginAmbig] : null);
+      if (raw === null) { skippedNoCost++; continue; }
       if (ambigIsDecimalPct) {
-        profit = rev * (raw * 100 / 100);  // raw=0.30 → 30% → profit=rev*0.30
+        profit = rev * raw;   // raw=0.30 → 30% margin → profit=rev×0.30
         cost   = rev - profit;
       } else {
-        // Tratta come EUR
-        profit = raw;
+        profit = raw;         // raw is already euros
         cost   = rev - profit;
       }
 
     } else {
-      // fallback: solo fatturato, margine ignoto
-      cost   = 0;
-      profit = 0;
+      // fallback: no cost/margin columns found — skip row, never invent values
+      skippedNoCost++;
+      continue;
     }
 
     const name     = C.name     ? String(r[C.name]     ?? '').trim() : rowId;
     const category = C.category ? String(r[C.category] ?? '').trim() : '';
     const brand    = C.brand    ? String(r[C.brand]    ?? '').trim() : '';
 
-    // Filtra righe senza fatturato e senza profitto (come originale)
-    if (rev > 0 || profit !== 0) {
-      parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit });
-    }
+    // Include only rows with positive revenue (already checked above)
+    parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit });
   }
 
-  // ── 5. Aggrega per ID prodotto ────────────────────────────────────────────
+  // ── 5. Aggregate by product ID (multi-period data) ────────────────────────
   const aggMap = new Map<string, ParsedRow>();
   for (const p of parsed) {
     if (!aggMap.has(p.id)) {
@@ -435,7 +470,7 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
     }
   }
 
-  // ── 6. Costruisce AnalysisRow[] con marginPct ricalcolato ─────────────────
+  // ── 6. Build AnalysisRow[] with recalculated marginPct ───────────────────
   const result: AnalysisRow[] = [];
   for (const a of aggMap.values()) {
     result.push({
@@ -450,31 +485,58 @@ export function parseGenericRows(rows: Record<string, unknown>[]): AnalysisRow[]
     });
   }
 
-  // ── 7. Riepilogo debug ────────────────────────────────────────────────────
-  const totalRev  = result.reduce((s, r) => s + r.revenue, 0);
-  const totalCost = result.reduce((s, r) => s + r.cost,    0);
-  const totalProf = result.reduce((s, r) => s + r.profit,  0);
-  const wAvgMarg  = totalRev > 0 ? totalProf / totalRev * 100 : 0;
+  // ── 7. Diagnostic warnings ────────────────────────────────────────────────
+  if (result.length > 0) {
+    const totRev  = result.reduce((s, r) => s + r.revenue, 0);
+    const totCost = result.reduce((s, r) => s + r.cost,    0);
+    const totProf = result.reduce((s, r) => s + r.profit,  0);
+    const wAvg    = totRev > 0 ? totProf / totRev * 100 : 0;
 
-  dbg('─── Parse summary ───────────────────────────────────────────');
-  dbg(`Righe raw        : ${rows.length}`);
-  dbg(`Righe "Totale"   : ${skippedTotal} (saltate)`);
-  dbg(`Righe valide     : ${parsed.length}`);
-  dbg(`Prodotti (agg.)  : ${result.length}`);
-  dbg(`Fatturato totale : ${totalRev.toFixed(2)}`);
-  dbg(`Costo totale     : ${totalCost.toFixed(2)}`);
-  dbg(`Margine €        : ${totalProf.toFixed(2)}`);
-  dbg(`Margine medio %  : ${wAvgMarg.toFixed(4)}%`);
+    const nCostEqualsRev = result.filter(r => r.revenue > 0 && Math.abs(r.cost - r.revenue) / r.revenue < 0.001).length;
+    if (nCostEqualsRev / result.length > 0.9) {
+      warnings.push('Probabile parsing costo errato: costo totale ≈ fatturato su >90% delle righe');
+      console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+    }
 
-  if (totalCost === 0 && mode !== 'B' && mode !== 'fallback') {
-    console.warn('[ABC] ATTENZIONE: Costo totale = 0. Verificare il nome della colonna costo nel file Excel.');
+    const nCostZero = result.filter(r => r.cost === 0).length;
+    if (nCostZero / result.length > 0.9 && mode !== 'B') {
+      warnings.push('Probabile colonna costo mancante: costo = 0 su >90% delle righe');
+      console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+    }
+
+    if (Math.abs(wAvg) < 0.001 && result.length > 5) {
+      warnings.push('Margine medio = 0%: parsing errato o dati insufficienti');
+      console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+    }
+    if (Math.abs(wAvg - 100) < 0.5 && result.length > 5) {
+      warnings.push('Margine medio ≈ 100%: probabile errore nella colonna costo');
+      console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+    }
+
+    dbg('─── Parse summary ───────────────────────────────────────────');
+    dbg(`Righe raw        : ${rows.length}`);
+    dbg(`Righe "Totale"   : ${skippedTotal} (saltate)`);
+    dbg(`Righe senza rev. : ${excludedNoRev} (escluse)`);
+    dbg(`Righe senza costo: ${skippedNoCost} (saltate)`);
+    dbg(`Righe valide     : ${parsed.length}`);
+    dbg(`Prodotti (agg.)  : ${result.length}`);
+    dbg(`Fatturato totale : ${totRev.toFixed(2)}`);
+    dbg(`Costo totale     : ${totCost.toFixed(2)}`);
+    dbg(`Margine €        : ${totProf.toFixed(2)}`);
+    dbg(`Margine medio %  : ${wAvg.toFixed(4)}%`);
+    dbg('─────────────────────────────────────────────────────────────');
   }
-  if (result.length > 10 && Math.abs(wAvgMarg - 100) < 1) {
-    console.warn('[ABC] ATTENZIONE: Margine medio ≈ 100%. Probabile errore parsing colonna costo.');
-  }
-  dbg('─────────────────────────────────────────────────────────────');
 
-  return result;
+  return {
+    rows: result,
+    rawRowsCount: rows.length,
+    validRowsCount: result.length,
+    excludedRowsCount: excludedNoRev,
+    skippedTotalCount: skippedTotal,
+    skippedNoCostCount: skippedNoCost,
+    mode,
+    warnings,
+  };
 }
 
 // ── Main calculation engine ───────────────────────────────────────────────────
@@ -486,29 +548,48 @@ export function calculate(
   customMarginRef: number | null,
 ): AbcMetrics {
   const empty = (): AbcMetrics => ({
-    products: [], totalRevenue: 0, totalProfit: 0,
+    products: [], totalRevenue: 0, totalCost: 0, totalProfit: 0,
     weightedMargin: 0, gini: 0, paretoIndex: 0,
     starRevenuePct: 0, riskRevenuePct: 0, belowAvgCount: 0,
     matrix: buildEmptyMatrix(), paretoData: [], categories: [],
     health: { total: 45, diversification: 100, starScore: 0, riskScore: 100, profitability: 0, resilience: 0 },
-    actions: [],
+    actions: [], warnings: [], marginDegenerate: false,
   });
 
   if (rows.length === 0) return empty();
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalCost    = rows.reduce((s, r) => s + r.cost,    0);
   const totalProfit  = rows.reduce((s, r) => s + r.profit,  0);
   if (totalRevenue === 0) return empty();
 
   // weightedMargin in pct points: e.g. 10.9 for 10.9%
   const weightedMargin = customMarginRef ?? (totalProfit / totalRevenue * 100);
 
-  // ── Revenue classification (Pareto cumulative) ───────────────────────────
-  // Rule: product whose addition CROSSES the threshold goes to the next tier.
-  // cumulato AFTER adding the product determines the tier:
-  //   pct ≤ 0.70 → A  (still within 70%)
-  //   pct ≤ 0.90 → B  (within 90%)
-  //   pct > 0.90 → C
+  // ── Diagnostic warnings ────────────────────────────────────────────────────
+  const warnings: string[] = [];
+  const marginDegenerate = Math.abs(weightedMargin) < 0.001;
+
+  if (marginDegenerate) {
+    warnings.push('Margine medio = 0%: tutti i prodotti avranno Margine A. Verificare colonne margine/costo.');
+    console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+  }
+  if (Math.abs(weightedMargin - 100) < 0.5) {
+    warnings.push('Margine medio ≈ 100%: probabile errore nella colonna costo');
+    console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+  }
+  const pctCostEqualsRev = rows.filter(r => r.revenue > 0 && Math.abs(r.cost - r.revenue) / r.revenue < 0.001).length / rows.length;
+  if (pctCostEqualsRev > 0.9 && rows.length > 10) {
+    warnings.push('Probabile parsing costo errato (costo totale ≈ fatturato su >90% delle righe)');
+    console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+  }
+  const pctCostZero = rows.filter(r => r.cost === 0).length / rows.length;
+  if (pctCostZero > 0.9 && rows.length > 10) {
+    warnings.push('Probabile colonna costo mancante (costo = 0 su >90% delle righe)');
+    console.warn('[ABC] ATTENZIONE:', warnings[warnings.length - 1]);
+  }
+
+  // ── Revenue classification (Pareto cumulative) ────────────────────────────
   const sorted = [...rows].sort((a, b) => b.revenue - a.revenue);
   let cumRev = 0;
   const withRev: (AnalysisRow & { cumRevenuePct: number; ratingRevenue: AbcRating })[] =
@@ -522,9 +603,11 @@ export function calculate(
       };
     });
 
-  // ── Margin classification (multiplicative thresholds on weighted avg) ────
-  // sogliaA = weightedMargin × (1 + thresholdA/100)  e.g. 10.9 × 1.10 = 11.99
-  // sogliaC = weightedMargin × (1 - thresholdC/100)  e.g. 10.9 × 0.90 =  9.81
+  // ── Margin classification (multiplicative thresholds on weighted avg) ─────
+  // sogliaA = weightedMargin × (1 + thresholdA/100)
+  // sogliaC = weightedMargin × (1 - thresholdC/100)
+  // When weightedMargin=0 both thresholds = 0; all non-negative → Margine A (degenerate).
+  // This is expected behaviour — the caller should check marginDegenerate and suppress alerts.
   const sogliaA = weightedMargin * (1 + thresholdA / 100);
   const sogliaC = weightedMargin * (1 - thresholdC / 100);
 
@@ -538,6 +621,23 @@ export function calculate(
       segment: `${r.ratingRevenue}${rM}` as SegmentKey,
     };
   });
+
+  // ── Distribution warnings ──────────────────────────────────────────────────
+  const cntMargA = products.filter(p => p.ratingMargin === 'A').length;
+  const cntMargB = products.filter(p => p.ratingMargin === 'B').length;
+  const cntMargC = products.filter(p => p.ratingMargin === 'C').length;
+
+  if (products.length > 10) {
+    if (cntMargA / products.length > 0.9) {
+      warnings.push(`Distribuzione margini degenerata: >90% in Margine A. Soglia A=${sogliaA.toFixed(2)}%`);
+    }
+    if (cntMargB / products.length > 0.95) {
+      warnings.push(`Distribuzione margini degenerata: >95% in Margine B. Soglie: A>=${sogliaA.toFixed(2)}%, C<${sogliaC.toFixed(2)}%`);
+    }
+    if (cntMargC / products.length > 0.9) {
+      warnings.push(`Distribuzione margini degenerata: >90% in Margine C. Soglia C=${sogliaC.toFixed(2)}%`);
+    }
+  }
 
   // ── Matrix ────────────────────────────────────────────────────────────────
   const matrix = buildEmptyMatrix();
@@ -576,7 +676,7 @@ export function calculate(
     };
   });
 
-  // ── Category aggregates (weighted margin) ─────────────────────────────────
+  // ── Category aggregates (for product-level view stats) ────────────────────
   const catMap = new Map<string, CategoryStat>();
   for (const p of products) {
     const cat = p.category || p.brand || '(N/D)';
@@ -596,49 +696,41 @@ export function calculate(
   const riskRevenuePct = matrix.AC.revenuePct + matrix.BC.revenuePct;
   const belowAvgCount  = products.filter(p => p.marginPct < weightedMargin).length;
 
-  // ── Health Score ──────────────────────────────────────────────────────────
-  const diversification = Math.round((1 - gini) * 100);
+  // ── Health Score (weighted sum per spec) ──────────────────────────────────
+  // concentration: peso 0.20  star: 0.20  risk: 0.25  margin: 0.25  resilience: 0.10
+  const diversification = Math.min(100, Math.max(0, Math.round((1 - gini) * 125)));
   const starScore       = Math.min(100, Math.round(starRevenuePct * 2));
-  const riskScore       = Math.round(Math.max(0, 100 - riskRevenuePct * 2));
+  const riskScore       = Math.max(0, Math.round(100 - riskRevenuePct * 3));
   const profitability   = Math.min(100, Math.max(0, Math.round((weightedMargin / 30) * 100)));
-  const resilience      = Math.min(100, Math.round(paretoIndex * 1.5));
+  const resilience      = Math.min(100, Math.round(paretoIndex * 3));
   const healthTotal     = Math.round(
-    (diversification + starScore + riskScore + profitability + resilience) / 5,
+    diversification * 0.20 + starScore * 0.20 + riskScore * 0.25 + profitability * 0.25 + resilience * 0.10,
   );
 
   // ── Distribution debug ───────────────────────────────────────────────────
-  const cntRevA  = products.filter(p => p.ratingRevenue === 'A').length;
-  const cntRevB  = products.filter(p => p.ratingRevenue === 'B').length;
-  const cntRevC  = products.filter(p => p.ratingRevenue === 'C').length;
-  const cntMargA = products.filter(p => p.ratingMargin  === 'A').length;
-  const cntMargB = products.filter(p => p.ratingMargin  === 'B').length;
-  const cntMargC = products.filter(p => p.ratingMargin  === 'C').length;
+  const cntRevA = products.filter(p => p.ratingRevenue === 'A').length;
+  const cntRevB = products.filter(p => p.ratingRevenue === 'B').length;
+  const cntRevC = products.filter(p => p.ratingRevenue === 'C').length;
 
   dbg('─── calculate() summary ──────────────────────────────────────');
   dbg(`Prodotti        : ${products.length}`);
   dbg(`Fatturato tot.  : ${totalRevenue.toFixed(2)}`);
-  dbg(`Costo tot.      : ${rows.reduce((s, r) => s + r.cost, 0).toFixed(2)}`);
+  dbg(`Costo tot.      : ${totalCost.toFixed(2)}`);
   dbg(`Margine €       : ${totalProfit.toFixed(2)}`);
   dbg(`Margine medio % : ${weightedMargin.toFixed(4)}%`);
   dbg(`Soglia A        : >= ${sogliaA.toFixed(4)}%`);
   dbg(`Soglia C        : <  ${sogliaC.toFixed(4)}%`);
   dbg(`Rating Fatt.    : A=${cntRevA}  B=${cntRevB}  C=${cntRevC}`);
   dbg(`Rating Marg.    : A=${cntMargA}  B=${cntMargB}  C=${cntMargC}`);
+  dbg(`marginDegenerate: ${marginDegenerate}`);
   dbg('Celle 3×3:');
   (['AA','AB','AC','BA','BB','BC','CA','CB','CC'] as SegmentKey[]).forEach(k => {
     if (matrix[k].count > 0) dbg(`  ${k}: ${matrix[k].count} prodotti, ${matrix[k].revenuePct.toFixed(1)}% fatturato`);
   });
-
-  if (cntMargB / products.length > 0.95 && products.length > 10) {
-    console.warn(
-      '[ABC] WARNING: >95% dei prodotti è in Margine B. ' +
-      `Margine medio = ${weightedMargin.toFixed(2)}%, soglie: A>=${sogliaA.toFixed(2)}%, C<${sogliaC.toFixed(2)}%. ` +
-      'Possibile errore di parsing margini o soglie troppo strette.',
-    );
-  }
+  dbg(`Warnings: ${warnings.length > 0 ? warnings.join(' | ') : 'none'}`);
   dbg('─────────────────────────────────────────────────────────────');
 
-  // ── Action items (derived from real matrix cells) ─────────────────────────
+  // ── Action items ──────────────────────────────────────────────────────────
   const actions: ActionItem[] = [];
   const ac = products.filter(p => p.segment === 'AC');
   const bc = products.filter(p => p.segment === 'BC');
@@ -683,11 +775,11 @@ export function calculate(
   });
 
   return {
-    products, totalRevenue, totalProfit, weightedMargin, gini, paretoIndex,
+    products, totalRevenue, totalCost, totalProfit, weightedMargin, gini, paretoIndex,
     starRevenuePct, riskRevenuePct, belowAvgCount,
     matrix, paretoData, categories,
     health: { total: healthTotal, diversification, starScore, riskScore, profitability, resilience },
-    actions,
+    actions, warnings, marginDegenerate,
   };
 }
 
@@ -773,7 +865,7 @@ export function buildMigration(
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// INTERNAL TEST — verified against known formulas, not hardcoded results
+// INTERNAL TEST — verified against known formulas
 // ══════════════════════════════════════════════════════════════════════════════
 
 export function _runSelfTest(): boolean {
@@ -788,7 +880,6 @@ export function _runSelfTest(): boolean {
   }
 
   // ── Test 1: Case A — Fatturato + Quantità + Costo Unitario ────────────────
-  // All rows have the SAME column schema (uniform, as in a real Excel file).
   {
     const rows: Record<string, unknown>[] = [
       { 'Codice': 'P001', 'Fatturato': 1000, 'Quantità': 100, 'Costo Unitario': 7 },  // cost=700, profit=300, m=30%
@@ -797,7 +888,8 @@ export function _runSelfTest(): boolean {
       { 'Codice': 'Totale', 'Fatturato': 9999, 'Quantità': 999, 'Costo Unitario': 0 }, // must be skipped
       { 'Codice': '',       'Fatturato': null, 'Quantità': null,'Costo Unitario': 0 },  // must be skipped
     ];
-    const p = parseGenericRows(rows);
+    const result = parseGenericRows(rows);
+    const p = result.rows;
     check('CaseA: product count', p.length, 3);
     check('CaseA: P001 cost',     p.find(r => r.id === 'P001')?.cost,      700);
     check('CaseA: P001 marginPct',p.find(r => r.id === 'P001')?.marginPct, 30);
@@ -806,17 +898,17 @@ export function _runSelfTest(): boolean {
     check('CaseA: Totale skipped',p.find(r => r.id === 'Totale'), undefined, 0);
   }
 
-  // ── Test 2: Case B — Fatturato + Margine % (decimal Excel cells: 0.20 = 20%) ──
+  // ── Test 2: Case B — Fatturato + Margine % (decimal Excel: 0.20 = 20%) ──
   {
     const rows: Record<string, unknown>[] = [
-      { 'Codice': 'Q001', 'Fatturato': 1000, 'Margine %': 0.30 },  // decimal → 30%
-      { 'Codice': 'Q002', 'Fatturato': 500,  'Margine %': 0.20 },  // decimal → 20%
-      { 'Codice': 'Q003', 'Fatturato': 200,  'Margine %': 0.10 },  // decimal → 10%
+      { 'Codice': 'Q001', 'Fatturato': 1000, 'Margine %': 0.30 },
+      { 'Codice': 'Q002', 'Fatturato': 500,  'Margine %': 0.20 },
+      { 'Codice': 'Q003', 'Fatturato': 200,  'Margine %': 0.10 },
     ];
-    const p = parseGenericRows(rows);
-    // detectPctScale: max = 0.30 < 2 → decimal → multiply by 100
+    const result = parseGenericRows(rows);
+    const p = result.rows;
     check('CaseB-decimal: Q001 marginPct', p.find(r => r.id === 'Q001')?.marginPct, 30);
-    check('CaseB-decimal: Q002 cost',      p.find(r => r.id === 'Q002')?.cost,      400); // 500*(1-0.20)*scale
+    check('CaseB-decimal: Q002 cost',      p.find(r => r.id === 'Q002')?.cost,      400);
     check('CaseB-decimal: Q002 profit',    p.find(r => r.id === 'Q002')?.profit,    100);
   }
 
@@ -826,8 +918,8 @@ export function _runSelfTest(): boolean {
       { 'Codice': 'R001', 'Fatturato': 1000, 'Margine %': '30%' },
       { 'Codice': 'R002', 'Fatturato': 500,  'Margine %': '20%' },
     ];
-    const p = parseGenericRows(rows);
-    // "30%" → hasPctSign=true → returns 30 (already pct-scale) → max=30 >= 2 → percentage scale
+    const result = parseGenericRows(rows);
+    const p = result.rows;
     check('CaseB-string%: R001 marginPct', p.find(r => r.id === 'R001')?.marginPct, 30);
     check('CaseB-string%: R001 profit',    p.find(r => r.id === 'R001')?.profit,    300);
   }
@@ -835,28 +927,41 @@ export function _runSelfTest(): boolean {
   // ── Test 4: Case C — Fatturato + Margine € ────────────────────────────────
   {
     const rows: Record<string, unknown>[] = [
-      { 'Codice': 'S001', 'Fatturato': 1000, 'Margine €': 300 },  // cost=700, margin=30%
-      { 'Codice': 'S002', 'Fatturato': 500,  'Margine €': 150 },  // cost=350, margin=30%
+      { 'Codice': 'S001', 'Fatturato': 1000, 'Margine €': 300 },
+      { 'Codice': 'S002', 'Fatturato': 500,  'Margine €': 150 },
     ];
-    const p = parseGenericRows(rows);
+    const result = parseGenericRows(rows);
+    const p = result.rows;
     check('CaseC: S001 marginPct', p.find(r => r.id === 'S001')?.marginPct, 30);
     check('CaseC: S001 cost',      p.find(r => r.id === 'S001')?.cost,      700);
     check('CaseC: S002 profit',    p.find(r => r.id === 'S002')?.profit,    150);
   }
 
-  // ── Test 5: Italian number format parsing ─────────────────────────────────
+  // ── Test 5: Italian number format ─────────────────────────────────────────
   {
     const rows: Record<string, unknown>[] = [
       { 'Codice': 'IT01', 'Fatturato': '1.234,56', 'Margine €': '123,46' },
     ];
-    const p = parseGenericRows(rows);
+    const result = parseGenericRows(rows);
+    const p = result.rows;
     check('Italian: IT01 revenue', p.find(r => r.id === 'IT01')?.revenue, 1234.56);
     check('Italian: IT01 profit',  p.find(r => r.id === 'IT01')?.profit,  123.46);
   }
 
-  // ── Test 6: calculate() — multiplicative margin thresholds ───────────────
-  // Input: 5 products with known margins; avg = 20%
-  // thresholdA=10 → sogliaA=22%; thresholdC=10 → sogliaC=18%
+  // ── Test 6: fallback mode — no cost column → all rows skipped ─────────────
+  {
+    const rows: Record<string, unknown>[] = [
+      { 'Codice': 'F001', 'Fatturato': 1000 },
+      { 'Codice': 'F002', 'Fatturato': 500  },
+    ];
+    const result = parseGenericRows(rows);
+    check('Fallback: no rows returned',       result.rows.length,        0);
+    check('Fallback: mode is fallback',       result.mode === 'fallback', true, 0);
+    check('Fallback: 2 rows skipped NoCost',  result.skippedNoCostCount, 2);
+    check('Fallback: warnings emitted',       result.warnings.length > 0, true, 0);
+  }
+
+  // ── Test 7: calculate() — multiplicative margin thresholds ───────────────
   {
     const input: AnalysisRow[] = [
       { id:'T001', name:'A', category:'', brand:'', revenue:2000, cost:1600, profit:400,  marginPct:20 },
@@ -869,7 +974,6 @@ export function _runSelfTest(): boolean {
     const m = calculate(input, 10, 10, null);
     const wm = 790 / 4000 * 100;
     check('calc: weightedMargin', m.weightedMargin, wm);
-    check('calc: sogliaA',        wm * 1.10, wm * 1.10, 0); // sanity
     // T002: 30% >= wm*1.10=21.725% → Margine A
     check('calc: T002 ratingMargin', m.products.find(p => p.id==='T002')?.ratingMargin, 'A', 0);
     // T004: -16.7% < wm*0.90=17.775% → Margine C
@@ -877,6 +981,25 @@ export function _runSelfTest(): boolean {
     // Revenue sort desc: T001(2000)→cum50%≤70%→A, T002(1000)→cum75%>70%→B
     check('calc: T001 ratingRevenue', m.products.find(p => p.id==='T001')?.ratingRevenue, 'A', 0);
     check('calc: T002 ratingRevenue', m.products.find(p => p.id==='T002')?.ratingRevenue, 'B', 0);
+    check('calc: marginDegenerate=false', m.marginDegenerate, false, 0);
+  }
+
+  // ── Test 8: aggregateByCategory ──────────────────────────────────────────
+  {
+    const input: AnalysisRow[] = [
+      { id:'P001', name:'Prod1', category:'Cat1', brand:'', revenue:1000, cost:700, profit:300, marginPct:30 },
+      { id:'P002', name:'Prod2', category:'Cat1', brand:'', revenue:500,  cost:400, profit:100, marginPct:20 },
+      { id:'P003', name:'Prod3', category:'Cat2', brand:'', revenue:800,  cost:600, profit:200, marginPct:25 },
+    ];
+    const cats = aggregateByCategory(input);
+    const cat1 = cats.find(c => c.id === 'Cat1');
+    const cat2 = cats.find(c => c.id === 'Cat2');
+    check('aggCat: 2 categories', cats.length, 2);
+    check('aggCat: Cat1 revenue', cat1?.revenue, 1500);
+    check('aggCat: Cat1 profit',  cat1?.profit,  400);
+    check('aggCat: Cat1 marginPct', cat1?.marginPct, 400/1500*100);
+    check('aggCat: Cat2 revenue', cat2?.revenue, 800);
+    check('aggCat: Cat2 marginPct', cat2?.marginPct, 25);
   }
 
   if (ok) {
