@@ -697,7 +697,7 @@ export function calculate(
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const starRevenuePct = matrix.AA.revenuePct;
-  const riskRevenuePct = matrix.AC.revenuePct + matrix.BC.revenuePct;
+  const riskRevenuePct = matrix.AC.revenuePct + matrix.BC.revenuePct + matrix.CC.revenuePct;
   const belowAvgCount  = products.filter(p => p.marginPct < weightedMargin).length;
 
   // ── Health Score (weighted sum per spec) ──────────────────────────────────

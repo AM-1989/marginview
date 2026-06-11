@@ -534,7 +534,7 @@ export default function ABCMatrix() {
           { icon: Percent,       label: 'MARGINE MEDIO PESATO',  value: fmtPct(weightedMargin),    sub: `Profitto: ${fmtK(totalProfit)}`,                                         color: 'text-slate-800' },
           { icon: TrendingUp,    label: 'INDICE PARETO',         value: fmtPct(paretoIndex),       sub: "Prodotti che fanno l'80%",                                               color: 'text-blue-600' },
           { icon: Star,          label: 'FATTURATO STAR',        value: fmtPct(starRevenuePct),    sub: 'Cella A-A',                                                              color: 'text-emerald-600' },
-          { icon: TriangleAlert, label: 'FATTURATO A RISCHIO',   value: fmtPct(riskRevenuePct),    sub: 'Margine basso (A-C/B-C)',                                                color: riskRevenuePct > 20 ? 'text-red-500' : 'text-slate-700' },
+          { icon: TriangleAlert, label: 'FATTURATO A RISCHIO',   value: fmtPct(riskRevenuePct),    sub: 'Margine basso (AC/BC/CC)',                                                color: riskRevenuePct > 20 ? 'text-red-500' : 'text-slate-700' },
           { icon: Users,         label: 'PRODOTTI SOTTO MEDIA',  value: belowAvgCount.toString(),  sub: `su ${products.length} totali`,                                           color: 'text-slate-600' },
         ].map(({ icon: Icon, label, value, sub, color }) => (
           <div key={label} className="bg-white border border-slate-200 rounded-xl p-4">
@@ -1123,7 +1123,8 @@ export default function ABCMatrix() {
             const ys = categories.map(c => c.marginPct);
             const x1 = Math.max(...xs) * 1.1 || 1;
             const yMin = Math.min(...ys), yMax = Math.max(...ys);
-            const y0 = yMin - (yMax - yMin) * 0.15, y1 = yMax + (yMax - yMin) * 0.15 || 1;
+            const yRange = yMax - yMin || 1;
+            const y0 = yMin - yRange * 0.15, y1 = yMax + yRange * 0.15;
             const sx = (v: number) => PAD.l + (v / x1) * pw;
             const sy = (v: number) => PAD.t + (1 - (v - y0) / (y1 - y0)) * ph;
             const refY = sy(weightedMargin);
