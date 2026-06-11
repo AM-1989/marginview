@@ -73,8 +73,14 @@ app.use(cors({
 app.use(express.json());
 
 // ── Database bootstrap ────────────────────────────────────────────────────────
+// DATABASE_PATH can point to a persistent directory (e.g. on Hostinger use an
+// absolute path outside the app folder so deploys/restarts don't lose data).
+// Default: server/database.sqlite (same directory as this file).
 
-const db = new Database(path.join(__dirname, 'database.sqlite'));
+const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'database.sqlite');
+console.log(`[DB] Path: ${DB_PATH}`);
+
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
 db.exec(`
@@ -105,6 +111,12 @@ db.exec(`
     created_at DATETIME NOT NULL DEFAULT (datetime('now'))
   )
 `);
+
+// Pulizia sessioni scadute all'avvio (>8h)
+const { changes: expiredSessions } = db.prepare(
+  `DELETE FROM sessions WHERE created_at <= datetime('now', '-8 hours')`
+).run();
+if (expiredSessions > 0) console.log(`[DB] Sessioni scadute rimosse: ${expiredSessions}`);
 
 const hashPwd    = pwd => crypto.createHash('sha256').update(pwd).digest('hex');
 const generateOtp = () => String(Math.floor(crypto.randomInt(0, 1_000_000))).padStart(6, '0');
@@ -637,6 +649,8 @@ if (fs.existsSync(distPath)) {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n[START] MarginView in ascolto su 0.0.0.0:${PORT}`);
   console.log(`[START] Mode: ${DEMO_MODE ? 'DEMO (OTP nel JSON)' : 'PRODUCTION (SMTP)'}`);
+  console.log(`[START] Database: ${DB_PATH}`);
+  console.log(`[START] Frontend URL: ${(process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173 (FALLBACK — impostare FRONTEND_URL)')}`);
   console.log(`[START] Frontend: ${fs.existsSync(distPath) ? distPath : 'NON TROVATO'}`);
   if (process.env.DEPLOY_SECRET) {
     console.log('[START] Webhook deploy: POST /api/deploy (token configurato)');
