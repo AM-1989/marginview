@@ -66,56 +66,6 @@ export interface AbcSummary {
   CountC: number;
 }
 
-// ─── Variance Analysis (Modulo 2) ─────────────────────────────────────────────
-
-export interface VariancePeriodData {
-  Referenza: string;
-  Descrizione: string;
-  Brand?: string;
-  Categoria?: string;
-  Sottocategoria?: string;
-  Formato?: string;
-
-  // Period 1 values
-  Q1: number;
-  P1: number; // avg unit price
-  C1: number; // avg unit cost
-
-  // Period 2 values
-  Q2: number;
-  P2: number;
-  C2: number;
-
-  // Derived
-  Fatturato1: number;
-  Fatturato2: number;
-  Margine1: number;
-  Margine2: number;
-  DeltaMargine: number;
-}
-
-export interface VarianceMixEffect {
-  dimension: 'Brand' | 'Categoria' | 'Sottocategoria' | 'Formato';
-  label: string;
-  effect: number;
-}
-
-export interface VarianceEffectResult {
-  // Top-level waterfall effects
-  effettoVolume: number;
-  effettoPrezzo: number;
-  effettoCosto: number;
-
-  // Dynamic mix effects broken down by dimension
-  effettiMix: VarianceMixEffect[];
-
-  // Total delta for reconciliation
-  deltaMargineTotale: number;
-
-  // Per-referenza breakdown
-  dettaglio: VariancePeriodData[];
-}
-
 // ─── Balance / Financial Statements (Modulo 3) ────────────────────────────────
 
 export interface BalanceInputYear {
