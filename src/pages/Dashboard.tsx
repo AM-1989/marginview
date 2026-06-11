@@ -80,7 +80,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             </span>
           </div>
           <h2 className="text-2xl font-bold tracking-tight mb-2">
-            Benvenuto in Moro Analytics
+            Benvenuto in MarginView
           </h2>
           <p className="text-slate-300 text-sm max-w-xl leading-relaxed">
             Suite professionale di controllo di gestione. Analizza il portafoglio prodotti,

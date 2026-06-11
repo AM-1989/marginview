@@ -91,10 +91,7 @@ export default function Sidebar({ currentTab, onTabChange }: SidebarProps) {
           </div>
           <div>
             <p className="text-white font-semibold text-sm leading-tight tracking-wide">
-              Moro Analytics
-            </p>
-            <p className="text-slate-500 text-[11px] leading-tight mt-0.5 font-medium uppercase tracking-widest">
-              Control Suite
+              MarginView
             </p>
           </div>
         </div>
@@ -127,15 +124,6 @@ export default function Sidebar({ currentTab, onTabChange }: SidebarProps) {
         )}
       </nav>
 
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-slate-800">
-        <p className="text-slate-600 text-[11px] font-medium">v1.0.0</p>
-        {user && (
-          <p className="text-slate-700 text-[10px] mt-0.5 truncate" title={user.email}>
-            {user.name ?? user.email}
-          </p>
-        )}
-      </div>
     </aside>
   );
 }

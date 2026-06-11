@@ -1,14 +1,14 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from 'recharts';
 import {
   TrendingUp, Building2, Droplets, AlertCircle,
-  MessageSquareText, PenLine, Calculator,
+  MessageSquareText, PenLine, Calculator, Upload, Loader2, Plus,
 } from 'lucide-react';
 import { calculateBalanceKPIs } from '../lib/balanceAnalysis';
-import { mockBalanceData } from '../lib/mockData';
 import type { BalanceInputYear, BalanceKPI } from '../types';
 
 // ── Rating system ─────────────────────────────────────────────────────────────
@@ -95,6 +95,64 @@ function buildAiComment(kpi: BalanceKPI, input: BalanceInputYear): string {
   ].join('\n');
 }
 
+// ── Balance Excel parser ──────────────────────────────────────────────────────
+
+const BLANK_YEAR = (anno: number): BalanceInputYear => ({
+  anno,
+  ricavi: 0, costoDelVenduto: 0, costiOperativi: 0, ammortamenti: 0,
+  oneriFinanziari: 0, imposte: 0,
+  attivitaCorrente: 0, rimanenze: 0, creditiClienti: 0, liquidita: 0,
+  attivitaNonCorrente: 0,
+  patrimoniNetto: 0, debitiFinanziari: 0, debitiFornitori: 0,
+  altrePassivitaCorrente: 0,
+});
+
+function parseBalanceExcel(raw: Record<string, unknown>[]): BalanceInputYear[] {
+  const n = (v: unknown) => parseFloat(String(v ?? '0').replace(',', '.')) || 0;
+  const keys = (raw[0] ? Object.keys(raw[0]) : []).map(k => k.trim());
+  const find = (...aliases: string[]) => {
+    const lower = keys.map(k => k.toLowerCase());
+    for (const a of aliases) { const i = lower.indexOf(a); if (i !== -1) return keys[i]; }
+    return undefined;
+  };
+  const C = {
+    anno:  find('anno', 'year', 'esercizio'),
+    ricavi: find('ricavi', 'ricavi netti', 'revenue', 'fatturato'),
+    cdv:   find('costodelvenduto', 'costo del venduto', 'cogs', 'costo venduto'),
+    cop:   find('costioperativi', 'costi operativi', 'opex', 'costi operazioni'),
+    amm:   find('ammortamenti', 'ammortamenti & svalutazioni', 'depreciation', 'd&a'),
+    of:    find('onerifinanziari', 'oneri finanziari', 'interessi passivi', 'interest expense'),
+    imp:   find('imposte', 'taxes', 'tasse'),
+    ac:    find('attivitacorrente', 'attivita corrente', 'current assets'),
+    rim:   find('rimanenze', 'inventories', 'scorte', 'inventory'),
+    cred:  find('crediticlienti', 'crediti clienti', 'accounts receivable', 'crediti'),
+    liq:   find('liquidita', 'cash', 'cassa'),
+    anc:   find('attivitanoncorrente', 'attivita non corrente', 'fixed assets', 'immobilizzazioni'),
+    pn:    find('patrimionionetto', 'patrimonio netto', 'equity', 'capital'),
+    df:    find('debitifinanziari', 'debiti finanziari', 'financial debt', 'debt'),
+    debit: find('debitifornitori', 'debiti fornitori', 'accounts payable', 'fornitori'),
+    altpass: find('altrepassivitacorrente', 'altre passivita corrente', 'other current liabilities'),
+  };
+  return raw.map((r, i) => ({
+    anno:                  C.anno  ? n(r[C.anno])  : new Date().getFullYear() + i,
+    ricavi:                C.ricavi ? n(r[C.ricavi]) : 0,
+    costoDelVenduto:       C.cdv   ? n(r[C.cdv])   : 0,
+    costiOperativi:        C.cop   ? n(r[C.cop])   : 0,
+    ammortamenti:          C.amm   ? n(r[C.amm])   : 0,
+    oneriFinanziari:       C.of    ? n(r[C.of])    : 0,
+    imposte:               C.imp   ? n(r[C.imp])   : 0,
+    attivitaCorrente:      C.ac    ? n(r[C.ac])    : 0,
+    rimanenze:             C.rim   ? n(r[C.rim])   : 0,
+    creditiClienti:        C.cred  ? n(r[C.cred])  : 0,
+    liquidita:             C.liq   ? n(r[C.liq])   : 0,
+    attivitaNonCorrente:   C.anc   ? n(r[C.anc])   : 0,
+    patrimoniNetto:        C.pn    ? n(r[C.pn])    : 0,
+    debitiFinanziari:      C.df    ? n(r[C.df])    : 0,
+    debitiFornitori:       C.debit ? n(r[C.debit]) : 0,
+    altrePassivitaCorrente: C.altpass ? n(r[C.altpass]) : 0,
+  })).filter(y => y.anno > 1900);
+}
+
 // ── Sub-components (defined outside main to avoid React remount on re-render) ─
 
 function ComputedLine({ label, value, pct }: { label: string; value: number; pct?: number }) {
@@ -168,9 +226,27 @@ function NumInput({ field, label, indent = false, value, onChange }: NumInputPro
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function BalanceAnalysis() {
-  const [years, setYears]           = useState<BalanceInputYear[]>([...mockBalanceData.years]);
+  const [years, setYears]             = useState<BalanceInputYear[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [userNote, setUserNote]     = useState('');
+  const [userNote, setUserNote]       = useState('');
+  const [loadingFile, setLoadingFile] = useState(false);
+  const [uploadDragging, setUploadDragging] = useState(false);
+  const uploadInputRef                = useRef<HTMLInputElement>(null);
+
+  async function handleFile(file: File) {
+    setLoadingFile(true);
+    try {
+      const ab  = await file.arrayBuffer();
+      const wb  = XLSX.read(ab);
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
+      const parsed = parseBalanceExcel(raw);
+      if (parsed.length === 0) { alert('Nessuna riga valida trovata nel file.'); return; }
+      setYears(parsed);
+      setSelectedIdx(0);
+    } catch { alert('Errore lettura file. Assicurati che sia un Excel valido.'); }
+    finally { setLoadingFile(false); }
+  }
 
   // Live KPI calculation for all years
   const kpis: BalanceKPI[] = useMemo(() => years.map(y => calculateBalanceKPIs(y)), [years]);
@@ -180,6 +256,7 @@ export default function BalanceAnalysis() {
 
   // Income statement cascade (read-only display)
   const ceCalc = useMemo(() => {
+    if (!currentInput) return { ebitda: 0, ebitdaPerc: 0, ebit: 0, ebitPerc: 0, utileNetto: 0, utileNettoPerc: 0 };
     const { ricavi, costoDelVenduto, costiOperativi, ammortamenti, oneriFinanziari, imposte } = currentInput;
     const ebitda     = ricavi - costoDelVenduto - costiOperativi;
     const ebit       = ebitda - ammortamenti;
@@ -197,6 +274,7 @@ export default function BalanceAnalysis() {
 
   // Balance sheet aggregates (read-only display)
   const spCalc = useMemo(() => {
+    if (!currentInput) return { attivoTotale: 0, passivitaCorrente: 0, ccn: 0 };
     const { attivitaCorrente, attivitaNonCorrente, debitiFornitori, altrePassivitaCorrente } = currentInput;
     const attivoTotale      = attivitaCorrente + attivitaNonCorrente;
     const passivitaCorrente = debitiFornitori   + altrePassivitaCorrente;
@@ -216,7 +294,7 @@ export default function BalanceAnalysis() {
   })), [years, kpis]);
 
   const aiComment = useMemo(
-    () => buildAiComment(currentKPI, currentInput),
+    () => currentKPI && currentInput ? buildAiComment(currentKPI, currentInput) : '',
     [currentKPI, currentInput],
   );
 
@@ -229,6 +307,72 @@ export default function BalanceAnalysis() {
   }, [selectedIdx]);
 
   // ─────────────────────────────────────────────────────────────────────────────
+  if (years.length === 0) {
+    return (
+      <div className="min-h-full flex flex-col bg-slate-50">
+        <div className="px-8 pt-8 pb-2 flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-violet-600 flex items-center justify-center">
+            <TrendingUp className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900 leading-tight">Analisi Bilancio</h1>
+            <p className="text-xs text-slate-500">KPI Finanziari</p>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-8 py-12">
+          <div className="w-full max-w-xl space-y-4">
+            <div
+              className={`border-2 border-dashed rounded-2xl p-14 flex flex-col items-center gap-6 cursor-pointer transition-colors bg-white ${
+                uploadDragging
+                  ? 'border-violet-400 bg-violet-50'
+                  : 'border-slate-300 hover:border-violet-400 hover:bg-violet-50/40'
+              }`}
+              onDragOver={e => { e.preventDefault(); setUploadDragging(true); }}
+              onDragLeave={() => setUploadDragging(false)}
+              onDrop={e => {
+                e.preventDefault(); setUploadDragging(false);
+                const f = e.dataTransfer.files[0]; if (f) handleFile(f);
+              }}
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              {loadingFile
+                ? <Loader2 className="w-12 h-12 text-violet-500 animate-spin" />
+                : <Upload className="w-12 h-12 text-slate-300" />
+              }
+              <div className="text-center">
+                <h2 className="text-base font-semibold text-slate-700 mb-1">Carica il file Excel</h2>
+                <p className="text-sm text-slate-400">Trascina qui il file oppure clicca per selezionarlo</p>
+              </div>
+              <div className="w-full border-t border-slate-100 pt-5 space-y-2 text-center">
+                <p className="text-xs text-slate-500">
+                  <span className="font-semibold">Colonne:</span>{' '}
+                  Anno · Ricavi · CostoDelVenduto · CostiOperativi · Ammortamenti · OneriFinanziari · Imposte
+                </p>
+                <p className="text-xs text-slate-400">
+                  + AttivitaCorrente · Rimanenze · CreditiClienti · Liquidita · AttivitaNonCorrente · PatrimoniNetto · DebitiFinanziari · DebitiFornitori · AltrePassivitaCorrente
+                </p>
+              </div>
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+              />
+            </div>
+            <button
+              onClick={() => setYears([BLANK_YEAR(new Date().getFullYear())])}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:border-violet-300 hover:text-violet-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Inserisci dati manualmente
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 space-y-8 max-w-7xl">
 

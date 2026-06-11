@@ -52,7 +52,7 @@ export default function ActivateAccount({ token }: Props) {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 shadow-lg shadow-blue-900/60 mb-4">
             <Activity className="w-7 h-7 text-white" strokeWidth={2.5} />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Moro Analytics</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">MarginView</h1>
           <p className="text-slate-500 text-sm mt-1">Attivazione account</p>
         </div>
 

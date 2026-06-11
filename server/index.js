@@ -164,9 +164,9 @@ function serializeUser(u) {
 
 function buildActivationEmail(activationUrl, recipientEmail) {
   return {
-    from:    `"Moro Analytics" <${SMTP.from}>`,
+    from:    `"MarginView" <${SMTP.from}>`,
     to:      recipientEmail,
-    subject: 'Attiva il tuo account Moro Analytics',
+    subject: 'Attiva il tuo account MarginView',
     html: `<!DOCTYPE html>
 <html lang="it">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
@@ -175,12 +175,12 @@ function buildActivationEmail(activationUrl, recipientEmail) {
     <tr><td align="center" style="padding:40px 16px;">
       <table width="480" cellpadding="0" cellspacing="0" style="border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
         <tr><td style="background:#0f2540;padding:28px 36px;text-align:center;">
-          <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 8px;">MORO ANALYTICS</p>
+          <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 8px;">MARGINVIEW</p>
           <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0;">Attivazione Account</h1>
         </td></tr>
         <tr><td style="background:#ffffff;padding:36px;">
           <p style="color:#334155;font-size:15px;line-height:1.6;margin:0 0 24px;">
-            Sei stato invitato ad accedere a <strong>Moro Analytics</strong>.<br>
+            Sei stato invitato ad accedere a <strong>MarginView</strong>.<br>
             Clicca il pulsante per impostare la tua password e attivare l'account.
           </p>
           <div style="text-align:center;margin:0 0 28px;">
@@ -193,7 +193,7 @@ function buildActivationEmail(activationUrl, recipientEmail) {
           </p>
         </td></tr>
         <tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 36px;text-align:center;">
-          <p style="color:#94a3b8;font-size:11px;margin:0;">Messaggio automatico — non rispondere. © 2026 Moro Analytics</p>
+          <p style="color:#94a3b8;font-size:11px;margin:0;">Messaggio automatico — non rispondere. © 2026 MarginView</p>
         </td></tr>
       </table>
     </td></tr>
@@ -204,9 +204,9 @@ function buildActivationEmail(activationUrl, recipientEmail) {
 
 function buildOtpEmail(otp, recipientEmail) {
   return {
-    from:    `"Moro Analytics Security" <${SMTP.from}>`,
+    from:    `"MarginView Security" <${SMTP.from}>`,
     to:      recipientEmail,
-    subject: `${otp} — Il tuo codice di verifica Moro Analytics`,
+    subject: `${otp} — Il tuo codice di verifica MarginView`,
     html: `<!DOCTYPE html>
 <html lang="it">
 <head>
@@ -222,7 +222,7 @@ function buildOtpEmail(otp, recipientEmail) {
         <tr>
           <td style="background:#0f2540;padding:28px 36px;text-align:center;">
             <p style="color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin:0 0 8px;">
-              MORO ANALYTICS
+              MARGINVIEW
             </p>
             <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:0;letter-spacing:-0.5px;">
               Verifica Identità
@@ -264,7 +264,7 @@ function buildOtpEmail(otp, recipientEmail) {
           <td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:18px 36px;text-align:center;">
             <p style="color:#94a3b8;font-size:11px;margin:0;line-height:1.6;">
               Messaggio automatico — non rispondere.<br>
-              © 2026 Moro Analytics · Evolution Group
+              © 2026 MarginView
             </p>
           </td>
         </tr>
@@ -624,7 +624,7 @@ if (fs.existsSync(distPath)) {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n[START] Moro Analytics in ascolto su 0.0.0.0:${PORT}`);
+  console.log(`\n[START] MarginView in ascolto su 0.0.0.0:${PORT}`);
   console.log(`[START] Mode: ${DEMO_MODE ? 'DEMO (OTP nel JSON)' : 'PRODUCTION (SMTP)'}`);
   console.log(`[START] Frontend: ${fs.existsSync(distPath) ? distPath : 'NON TROVATO'}`);
   if (process.env.DEPLOY_SECRET) {

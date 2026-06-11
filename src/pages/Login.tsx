@@ -94,7 +94,7 @@ function DemoOtpNotification({ otp, onDismiss, onApply }: DemoNotifProps) {
               <Mail className="w-3.5 h-3.5 text-white" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-800 leading-tight">security@moro.it</p>
+              <p className="text-xs font-semibold text-slate-800 leading-tight">noreply@marginview.app</p>
               <p className="text-[10px] text-slate-400 leading-tight">Nuova email · adesso</p>
             </div>
           </div>
@@ -182,8 +182,8 @@ interface VerifyResponse {
 export default function Login({ onSuccess }: LoginProps) {
   const { login } = useAuth();
   // ── Step 1 ─────────────────────────────────────────────────────────────────
-  const [email,    setEmail]    = useState('admin@moro.it');
-  const [password, setPassword] = useState('Password123!');
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
   const [showPwd,  setShowPwd]  = useState(false);
 
   // ── Step 2 ─────────────────────────────────────────────────────────────────
@@ -328,8 +328,8 @@ export default function Login({ onSuccess }: LoginProps) {
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 shadow-lg shadow-blue-900/60 mb-4">
               <Activity className="w-7 h-7 text-white" strokeWidth={2.5} />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Moro Analytics</h1>
-            <p className="text-slate-500 text-sm mt-1">Control Suite — Accesso Sicuro</p>
+            <h1 className="text-2xl font-bold text-white tracking-tight">MarginView</h1>
+            <p className="text-slate-500 text-sm mt-1">Accesso Sicuro</p>
           </div>
 
           {/* Card */}
@@ -516,11 +516,6 @@ export default function Login({ onSuccess }: LoginProps) {
               )}
             </div>
 
-            {/* Card footer */}
-            <div className="bg-slate-50 border-t border-slate-100 px-8 py-3 flex items-center justify-between">
-              <p className="text-[10px] text-slate-400 font-medium">v1.0.0</p>
-              <p className="text-[10px] text-slate-400 font-mono">admin@moro.it / Password123!</p>
-            </div>
           </div>
 
           <p className="text-center text-[11px] text-slate-600 mt-5">

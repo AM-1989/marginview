@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import {
   BarChart,
   Bar,
@@ -16,9 +17,11 @@ import {
   PenLine,
   TrendingUp,
   TrendingDown,
+  Upload,
+  Loader2,
 } from 'lucide-react';
 import { calculateVariance, type DimensionKey } from '../lib/varianceAnalysis';
-import { mockRows } from '../lib/mockData';
+import type { RowExcel } from '../types';
 
 // ── Waterfall bar shape ───────────────────────────────────────────────────────
 //
@@ -58,7 +61,48 @@ interface WaterfallPoint {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const ALL_DIMENSIONS: DimensionKey[] = ['Brand', 'Categoria', 'Sottocategoria', 'Formato'];
-const AVAILABLE_YEARS = [...new Set(mockRows.map(r => r.Anno))].sort() as number[];
+
+// ── Excel parser for RowExcel format ─────────────────────────────────────────
+function parseRowExcel(raw: Record<string, unknown>[]): RowExcel[] {
+  if (!raw.length) return [];
+  const keys = Object.keys(raw[0]).map(k => k.trim());
+  const find = (...aliases: string[]) => {
+    const lower = keys.map(k => k.toLowerCase());
+    for (const a of aliases) { const i = lower.indexOf(a); if (i !== -1) return keys[i]; }
+    return undefined;
+  };
+  const C = {
+    ref:   find('referenza','codice','sku','id','articolo','code'),
+    desc:  find('descrizione','nome','prodotto','name','description'),
+    anno:  find('anno','year','anno competenza'),
+    mese:  find('mese','month'),
+    brand: find('brand','marca'),
+    cat:   find('categoria','category','famiglia'),
+    sub:   find('sottocategoria','subcategory','sub'),
+    fmt:   find('formato','format'),
+    paese: find('paese','country'),
+    canale:find('canale','channel'),
+    qty:   find('quantita','qty','quantità','quantity'),
+    price: find('prezzounitario','prezzo unitario','prezzo','price','unitprice'),
+    cost:  find('costounitario','costo unitario','costo','cost','unitcost'),
+  };
+  const n = (v: unknown) => parseFloat(String(v ?? '0').replace(',', '.')) || 0;
+  return raw.map((r, i) => ({
+    Referenza:      C.ref   ? String(r[C.ref])   : `P${i + 1}`,
+    Descrizione:    C.desc  ? String(r[C.desc])  : `Prodotto ${i + 1}`,
+    Anno:           C.anno  ? n(r[C.anno])        : new Date().getFullYear(),
+    Mese:           C.mese  ? n(r[C.mese])        : 1,
+    Brand:          C.brand ? String(r[C.brand]) : undefined,
+    Categoria:      C.cat   ? String(r[C.cat])   : undefined,
+    Sottocategoria: C.sub   ? String(r[C.sub])   : undefined,
+    Formato:        C.fmt   ? String(r[C.fmt])   : undefined,
+    Paese:          C.paese ? String(r[C.paese]) : undefined,
+    Canale:         C.canale? String(r[C.canale]): undefined,
+    Quantita:       C.qty   ? n(r[C.qty])        : 1,
+    PrezzoUnitario: C.price ? n(r[C.price])      : 0,
+    CostoUnitario:  C.cost  ? n(r[C.cost])       : 0,
+  })).filter(r => r.Quantita > 0 || r.PrezzoUnitario > 0);
+}
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -188,21 +232,47 @@ function buildAiComment(
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
-  const [p1Year, setP1Year] = useState<number>(AVAILABLE_YEARS[0] ?? 2025);
-  const [p2Year, setP2Year] = useState<number>(
-    AVAILABLE_YEARS[AVAILABLE_YEARS.length - 1] ?? 2026,
+  const [dataRows, setDataRows]             = useState<RowExcel[] | null>(null);
+  const [loadingFile, setLoadingFile]       = useState(false);
+  const [uploadDragging, setUploadDragging] = useState(false);
+  const uploadInputRef                      = useRef<HTMLInputElement>(null);
+
+  const availableYears = useMemo(
+    () => dataRows ? [...new Set(dataRows.map(r => r.Anno))].sort() as number[] : [],
+    [dataRows],
   );
+
+  const [p1Year, setP1Year] = useState<number>(0);
+  const [p2Year, setP2Year] = useState<number>(0);
   const [activeDimensions, setActiveDimensions] = useState<DimensionKey[]>([...ALL_DIMENSIONS]);
   const [userNote, setUserNote] = useState('');
 
+  // Sync year selectors when data changes
+  const p1Eff = availableYears.includes(p1Year) ? p1Year : (availableYears[0] ?? 0);
+  const p2Eff = availableYears.includes(p2Year) ? p2Year : (availableYears[availableYears.length - 1] ?? 0);
+
+  async function handleFile(file: File) {
+    setLoadingFile(true);
+    try {
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
+      const parsed = parseRowExcel(raw);
+      setDataRows(parsed);
+    } catch { alert('Errore lettura file. Assicurati che sia un Excel valido.'); }
+    finally { setLoadingFile(false); }
+  }
+
   // ── Core calculation ──────────────────────────────────────────────────────
   const result = useMemo(
-    () => calculateVariance(mockRows, p1Year, p2Year, activeDimensions),
-    [p1Year, p2Year, activeDimensions],
+    () => dataRows ? calculateVariance(dataRows, p1Eff, p2Eff, activeDimensions) : null,
+    [dataRows, p1Eff, p2Eff, activeDimensions],
   );
 
   // ── Derived aggregates ────────────────────────────────────────────────────
   const derived = useMemo(() => {
+    if (!result) return null;
     const M1 = result.dettaglio.reduce((s, d) => s + d.Margine1,   0);
     const M2 = result.dettaglio.reduce((s, d) => s + d.Margine2,   0);
     const R1 = result.dettaglio.reduce((s, d) => s + d.Fatturato1, 0);
@@ -243,40 +313,41 @@ export default function VarianceAnalysis() {
   }, [result, activeDimensions]);
 
   const {
-    M1, M2, R1, R2, margPerc1, margPerc2,
-    effMix, isBalanced, waterfallData, dimTotals, newRefs, dropRefs,
-  } = derived;
+    M1 = 0, M2 = 0, R1 = 0, R2 = 0, margPerc1 = 0, margPerc2 = 0,
+    effMix = 0, isBalanced = true, waterfallData = [], dimTotals = [], newRefs = 0, dropRefs = 0,
+  } = derived ?? {};
 
   // ── Effects table rows ────────────────────────────────────────────────────
   const effectRows = useMemo(() => {
+    if (!result) return [];
     type RowType = 'total' | 'effect' | 'mixSub';
     const make = (label: string, value: number, type: RowType) => ({
       label, value, type,
       pctOfM1: M1 !== 0 ? value / M1 * 100 : 0,
     });
     return [
-      make(`Margine ${p1Year}`,   M1,                    'total'),
+      make(`Margine ${p1Eff}`,   M1,                    'total'),
       make('Effetto Volume',      result.effettoVolume,  'effect'),
       make('Effetto Mix Totale',  effMix,                'effect'),
       ...dimTotals.map(({ dim, total }) => make(`  ↳ Mix ${dim}`, total, 'mixSub')),
       make('Effetto Prezzo',      result.effettoPrezzo,  'effect'),
       make('Effetto Costo',       result.effettoCosto,   'effect'),
-      make(`Margine ${p2Year}`,   M2,                    'total'),
+      make(`Margine ${p2Eff}`,   M2,                    'total'),
     ];
-  }, [M1, M2, p1Year, p2Year, result, effMix, dimTotals]);
+  }, [M1, M2, p1Eff, p2Eff, result, effMix, dimTotals]);
 
   // ── Sorted product detail ─────────────────────────────────────────────────
   const sortedDetail = useMemo(
-    () => [...result.dettaglio].sort((a, b) => Math.abs(b.DeltaMargine) - Math.abs(a.DeltaMargine)),
+    () => result ? [...result.dettaglio].sort((a, b) => Math.abs(b.DeltaMargine) - Math.abs(a.DeltaMargine)) : [],
     [result],
   );
 
   // ── AI comment ────────────────────────────────────────────────────────────
   const aiComment = useMemo(
-    () => buildAiComment(
+    () => result ? buildAiComment(
       result.effettoVolume, effMix, result.effettoPrezzo, result.effettoCosto,
       M1, M2, R1, R2, newRefs, dropRefs,
-    ),
+    ) : '',
     [result, effMix, M1, M2, R1, R2, newRefs, dropRefs],
   );
 
@@ -287,6 +358,64 @@ export default function VarianceAnalysis() {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  if (!dataRows) {
+    return (
+      <div className="min-h-full flex flex-col bg-slate-50">
+        <div className="px-8 pt-8 pb-2 flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-emerald-600 flex items-center justify-center">
+            <TrendingUp className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900 leading-tight">Varianza Marginalità</h1>
+            <p className="text-xs text-slate-500">Waterfall Analysis</p>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-8 py-12">
+          <div
+            className={`w-full max-w-xl border-2 border-dashed rounded-2xl p-16 flex flex-col items-center gap-6 cursor-pointer transition-colors bg-white ${
+              uploadDragging
+                ? 'border-emerald-400 bg-emerald-50'
+                : 'border-slate-300 hover:border-emerald-400 hover:bg-emerald-50/40'
+            }`}
+            onDragOver={e => { e.preventDefault(); setUploadDragging(true); }}
+            onDragLeave={() => setUploadDragging(false)}
+            onDrop={e => {
+              e.preventDefault(); setUploadDragging(false);
+              const f = e.dataTransfer.files[0]; if (f) handleFile(f);
+            }}
+            onClick={() => uploadInputRef.current?.click()}
+          >
+            {loadingFile
+              ? <Loader2 className="w-12 h-12 text-emerald-500 animate-spin" />
+              : <Upload className="w-12 h-12 text-slate-300" />
+            }
+            <div className="text-center">
+              <h2 className="text-base font-semibold text-slate-700 mb-1">Carica il file Excel</h2>
+              <p className="text-sm text-slate-400">Trascina qui il file oppure clicca per selezionarlo</p>
+            </div>
+            <div className="w-full border-t border-slate-100 pt-5 space-y-2 text-center">
+              <p className="text-xs text-slate-500">
+                <span className="font-semibold">Colonne richieste:</span>{' '}
+                Referenza · Anno · Quantita · PrezzoUnitario · CostoUnitario
+              </p>
+              <p className="text-xs text-slate-400">
+                <span className="font-medium">Opzionali:</span>{' '}
+                Descrizione · Mese · Brand · Categoria · Sottocategoria · Formato · Paese · Canale
+              </p>
+            </div>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 space-y-8 max-w-7xl">
 
@@ -296,7 +425,7 @@ export default function VarianceAnalysis() {
         <div className="flex-1 min-w-48">
           <h2 className="text-xl font-bold text-slate-900">Varianza Marginalità</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Waterfall analysis · {result.dettaglio.length} referenze nel Full Outer Join
+            Waterfall analysis · {result?.dettaglio.length ?? 0} referenze nel Full Outer Join
           </p>
         </div>
 
@@ -305,11 +434,11 @@ export default function VarianceAnalysis() {
           <div className="flex items-center gap-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">P1</label>
             <select
-              value={p1Year}
+              value={p1Eff}
               onChange={e => setP1Year(Number(e.target.value))}
               className="text-sm font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-400 cursor-pointer"
             >
-              {AVAILABLE_YEARS.map(y => (
+              {availableYears.map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
@@ -318,11 +447,11 @@ export default function VarianceAnalysis() {
           <div className="flex items-center gap-2">
             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">P2</label>
             <select
-              value={p2Year}
+              value={p2Eff}
               onChange={e => setP2Year(Number(e.target.value))}
               className="text-sm font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-400 cursor-pointer"
             >
-              {AVAILABLE_YEARS.map(y => (
+              {availableYears.map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
@@ -441,7 +570,7 @@ export default function VarianceAnalysis() {
           </div>
           <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
             {isBalanced
-              ? `ΔM = ${fmtEur.format(result.deltaMargineTotale)} ≡ Σ Effetti`
+              ? `ΔM = ${fmtEur.format(result?.deltaMargineTotale ?? 0)} ≡ Σ Effetti`
               : 'Sbilancio nella scomposizione'
             }
           </p>
@@ -452,7 +581,7 @@ export default function VarianceAnalysis() {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
         <div className="mb-5">
           <h3 className="text-sm font-semibold text-slate-700">
-            Bridge Chart — Scomposizione ΔMargine {p1Year} → {p2Year}
+            Bridge Chart — Scomposizione ΔMargine {p1Eff} → {p2Eff}
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
             Valori in € assoluti · Barra fantoccio trasparente + segmento colorato per effetto floating
@@ -587,7 +716,7 @@ export default function VarianceAnalysis() {
               </p>
             ) : (
               activeDimensions.map(dim => {
-                const entries = result.effettiMix
+                const entries = (result?.effettiMix ?? [])
                   .filter(e => e.dimension === dim)
                   .sort((a, b) => Math.abs(b.effect) - Math.abs(a.effect));
                 const dimSum = entries.reduce((s, e) => s + e.effect, 0);
@@ -700,7 +829,7 @@ export default function VarianceAnalysis() {
             <div>
               <p className="text-sm font-semibold text-white">Analisi AI — Waterfall Drivers</p>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                {p1Year} → {p2Year} · {activeDimensions.length} dimensioni attive
+                {p1Eff} → {p2Eff} · {activeDimensions.length} dimensioni attive
               </p>
             </div>
           </div>
@@ -710,10 +839,10 @@ export default function VarianceAnalysis() {
           <div className="mt-5 pt-4 border-t border-slate-800">
             <div className="flex flex-wrap gap-2">
               {[
-                { label: 'Volume',  value: result.effettoVolume  },
-                { label: 'Mix',     value: effMix                },
-                { label: 'Prezzo',  value: result.effettoPrezzo  },
-                { label: 'Costo',   value: result.effettoCosto   },
+                { label: 'Volume',  value: result?.effettoVolume ?? 0  },
+                { label: 'Mix',     value: effMix                       },
+                { label: 'Prezzo',  value: result?.effettoPrezzo ?? 0  },
+                { label: 'Costo',   value: result?.effettoCosto  ?? 0  },
               ].map(({ label, value }) => (
                 <span key={label} className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold ${
                   value >= 0
