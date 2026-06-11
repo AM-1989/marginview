@@ -256,9 +256,10 @@ const COL_ALIASES: Record<string, string[]> = {
     'costo', 'costi',
   ],
   marginPct: [
-    'margine %', 'margine%', 'margine (%)', 'margine percentuale',
-    'margine_pct', 'margin %', 'margin%', 'marginepct', 'margin_pct',
-    'margine pct', '% margine', 'margine %.',
+    'margine %', 'margine%', 'margine (%)', 'margine(%)', 'margine(%).',
+    'margine percentuale', 'margine_pct', 'margin %', 'margin%',
+    'margin(%)', 'marginepct', 'margin_pct', 'margine pct',
+    '% margine', 'margine %.', 'margine (%.) ',
   ],
   marginEur: [
     'margine €', 'margine euro', 'profitto', 'profit', 'utile',
