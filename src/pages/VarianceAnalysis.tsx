@@ -332,11 +332,18 @@ function VerifyRow({ group }: { group: TableGroup }) {
 }
 
 // ─── Detail row ───────────────────────────────────────────────────────────────
+// "Contributo a ΔM%" = margin€P2_cat/totalRev2 - margin€P1_cat/totalRev1
+// Somma su tutti i gruppi = marginPctP2 - marginPctP1 (quadratura garantita).
 
-function DetailTableRow({ group, expanded, onToggle, isGrouped }: {
+function DetailTableRow({ group, expanded, onToggle, isGrouped, totalRev1, totalRev2 }: {
   group: TableGroup; expanded: boolean; onToggle: () => void; isGrouped: boolean;
+  totalRev1: number; totalRev2: number;
 }) {
   const hasChildren = isGrouped && group.lines.length > 1;
+
+  const contributo = (totalRev2 > 0 ? group.margin2 / totalRev2 : 0)
+                   - (totalRev1 > 0 ? group.margin1 / totalRev1 : 0);
+
   return (
     <>
       <tr
@@ -360,53 +367,57 @@ function DetailTableRow({ group, expanded, onToggle, isGrouped }: {
         <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2  > 0 ? fmtEur.format(group.rev2) : 'N/D'}</td>
         <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2  > 0 ? fmtEur.format(group.cost2) : 'N/D'}</td>
         <td className="px-4 py-3 tabular-nums text-right text-slate-600">{nd(group.marginPct2, v => fmtPct(v * 100))}</td>
-        <td className={`px-4 py-3 tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
-          {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
+        {/* Contributo a ΔM% — pesato su fatturato totale, si somma al delta globale */}
+        <td className={`px-4 py-3 tabular-nums text-right font-semibold ${clrPp(contributo)}`}>
+          {fmtPp(contributo)}
         </td>
         <td className="px-4 py-3 text-center">
-          {group.effTotale !== null && (
-            group.effTotale > 0
-              ? <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto" />
-              : group.effTotale < 0
-                ? <TrendingDown className="w-4 h-4 text-red-400 mx-auto" />
-                : <span className="text-slate-400 text-xs">—</span>
-          )}
+          {contributo > 0
+            ? <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto" />
+            : contributo < 0
+              ? <TrendingDown className="w-4 h-4 text-red-400 mx-auto" />
+              : <span className="text-slate-400 text-xs">—</span>
+          }
         </td>
       </tr>
-      {expanded && group.lines.map(l => (
-        <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
-          <td className="px-4 py-2 pl-9 text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <span>{l.descrizione || l.codice}</span>
-              <PresenceBadge presence={l.presence} />
-            </div>
-          </td>
-          {/* P1: N/D se onlyP2 */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.rev1) : '—')}
-          </td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.cost1) : '—')}
-          </td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
-          </td>
-          {/* P2: N/D se onlyP1 */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.rev2) : '—')}
-          </td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.cost2) : '—')}
-          </td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
-          </td>
-          <td className={`px-4 py-2 tabular-nums text-right font-semibold ${l.deltaMarginPct !== null ? clrPp(l.deltaMarginPct) : 'text-slate-400'}`}>
-            {l.deltaMarginPct !== null ? fmtPp(l.deltaMarginPct) : 'N/D'}
-          </td>
-          <td className="px-4 py-2 text-center text-slate-300">—</td>
-        </tr>
-      ))}
+      {expanded && group.lines.map(l => {
+        const lContrib = (totalRev2 > 0 ? l.margin2 / totalRev2 : 0)
+                       - (totalRev1 > 0 ? l.margin1 / totalRev1 : 0);
+        return (
+          <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
+            <td className="px-4 py-2 pl-9 text-slate-500">
+              <div className="flex items-center gap-1.5">
+                <span>{l.descrizione || l.codice}</span>
+                <PresenceBadge presence={l.presence} />
+              </div>
+            </td>
+            {/* P1: N/D se onlyP2 */}
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.rev1) : '—')}
+            </td>
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.cost1) : '—')}
+            </td>
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
+            </td>
+            {/* P2: N/D se onlyP1 */}
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.rev2) : '—')}
+            </td>
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.cost2) : '—')}
+            </td>
+            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
+            </td>
+            <td className={`px-4 py-2 tabular-nums text-right font-semibold ${clrPp(lContrib)}`}>
+              {fmtPp(lContrib)}
+            </td>
+            <td className="px-4 py-2 text-center text-slate-300">—</td>
+          </tr>
+        );
+      })}
     </>
   );
 }
@@ -1080,7 +1091,7 @@ export default function VarianceAnalysis() {
                   <thead>
                     <tr className="bg-slate-50">
                       <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wide">Linea Prodotto</th>
-                      {['Fatt. P1','Costi P1','M% P1','Fatt. P2','Costi P2','M% P2','Varianza','Trend'].map(h => (
+                      {['Fatt. P1','Costi P1','M% P1','Fatt. P2','Costi P2','M% P2','Contributo a ΔM%','Trend'].map(h => (
                         <th key={h} className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wide last:text-center whitespace-nowrap">
                           {h}
                         </th>
@@ -1096,6 +1107,8 @@ export default function VarianceAnalysis() {
                             expanded={expandedDetail.has(g.key)}
                             onToggle={() => toggleDetail(g.key)}
                             isGrouped
+                            totalRev1={effects.totalRev1}
+                            totalRev2={effects.totalRev2}
                           />
                         ))
                       : effects.lines.map(l => {
@@ -1108,10 +1121,31 @@ export default function VarianceAnalysis() {
                             effVolMix: null, effPrezzo: null, effCosto: null, effTotale: l.deltaMarginPct,
                             lines: [l],
                           };
-                          return <DetailTableRow key={l.key} group={mg} expanded={false} onToggle={() => {}} isGrouped={false} />;
+                          return (
+                            <DetailTableRow
+                              key={l.key} group={mg} expanded={false} onToggle={() => {}} isGrouped={false}
+                              totalRev1={effects.totalRev1} totalRev2={effects.totalRev2}
+                            />
+                          );
                         })
                     }
                   </tbody>
+                  {/* Riga totale — somma contributi = deltaMarginPp (quadratura) */}
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
+                      <td className="px-4 py-3 text-slate-800">TOTALE</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalRev1)}</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalCost1)}</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtPct(effects.marginPctP1 * 100)}</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalRev2)}</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalCost2)}</td>
+                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtPct(effects.marginPctP2 * 100)}</td>
+                      <td className={`px-4 py-3 tabular-nums text-right ${clrPp(effects.marginPctP2 - effects.marginPctP1)}`}>
+                        {fmtPp(effects.marginPctP2 - effects.marginPctP1)}
+                      </td>
+                      <td className="px-4 py-3 text-center text-slate-400">—</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
