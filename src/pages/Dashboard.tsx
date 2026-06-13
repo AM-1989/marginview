@@ -1,5 +1,4 @@
-import { BarChart3, TrendingUp, LineChart, ArrowRight, Database, CheckCircle2, Layers } from 'lucide-react';
-import { mockRows } from '../lib/mockData';
+import { BarChart3, TrendingUp, LineChart, ArrowRight } from 'lucide-react';
 import type { TabId } from '../components/layout/Sidebar';
 
 interface ModuleCard {
@@ -53,12 +52,6 @@ const MODULES: ModuleCard[] = [
   },
 ];
 
-// Derive quick stats from mock data
-const years   = [...new Set(mockRows.map(r => r.Anno))].sort();
-const brands  = [...new Set(mockRows.map(r => r.Brand).filter(Boolean))];
-const refs    = [...new Set(mockRows.map(r => r.Referenza))];
-const totalRevenue = mockRows.reduce((s, r) => s + r.Quantita * r.PrezzoUnitario, 0);
-
 interface DashboardProps {
   onNavigate: (tab: TabId) => void;
 }
@@ -68,17 +61,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     <div className="p-8 space-y-8 max-w-6xl">
       {/* Welcome banner */}
       <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 p-8 text-white relative overflow-hidden">
-        {/* Decorative circles */}
         <div className="absolute -top-12 -right-12 w-48 h-48 rounded-full bg-blue-600/10 pointer-events-none" />
         <div className="absolute -bottom-8 -right-4 w-32 h-32 rounded-full bg-blue-500/10 pointer-events-none" />
 
         <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              Demo attiva
-            </span>
-          </div>
           <h2 className="text-2xl font-bold tracking-tight mb-2">
             Benvenuto in MarginView
           </h2>
@@ -87,20 +73,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             scomponi le variazioni di margine e monitora gli indici di bilancio in un'unica
             piattaforma integrata.
           </p>
-
-          <div className="mt-6 flex flex-wrap gap-6">
-            {[
-              { label: 'Referenze attive', value: refs.length },
-              { label: 'Anni analizzati', value: years.join(' · ') },
-              { label: 'Fatturato demo', value: `€ ${(totalRevenue / 1000).toFixed(0)}k` },
-              { label: 'Brand presenti', value: brands.length },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <p className="text-2xl font-bold text-white">{value}</p>
-                <p className="text-slate-400 text-xs mt-0.5">{label}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -120,7 +92,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               `}
               onClick={() => onNavigate(id)}
             >
-              {/* Icon + title */}
               <div className="flex items-start gap-4">
                 <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
                   <Icon className={`w-5 h-5 ${iconColor}`} strokeWidth={2} />
@@ -131,10 +102,8 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 </div>
               </div>
 
-              {/* Description */}
               <p className="text-sm text-slate-600 leading-relaxed flex-1">{description}</p>
 
-              {/* Tags */}
               <div className="flex flex-wrap gap-1.5">
                 {tags.map(t => (
                   <span
@@ -146,7 +115,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                 ))}
               </div>
 
-              {/* CTA */}
               <button
                 onClick={e => { e.stopPropagation(); onNavigate(id); }}
                 className={`
@@ -162,53 +130,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Data status box */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-            <Database className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-slate-900">Dati Demo Caricati di Default</h4>
-            <p className="text-xs text-slate-500">
-              Dataset simulato pronto all'uso — nessun file da importare
-            </p>
-          </div>
-          <span className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Attivo
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {[
-            { icon: Layers, label: 'Righe totali',     value: mockRows.length },
-            { icon: BarChart3, label: 'Referenze',     value: refs.length },
-            { icon: TrendingUp, label: 'Anni',         value: years.length },
-            { icon: Database,  label: 'Brand',         value: brands.length },
-          ].map(({ icon: Icon, label, value }) => (
-            <div
-              key={label}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-slate-50 border border-slate-100"
-            >
-              <Icon className="w-4 h-4 text-slate-400 flex-shrink-0" />
-              <div>
-                <p className="text-xl font-bold text-slate-900 leading-none">{value}</p>
-                <p className="text-xs text-slate-500 mt-1">{label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-4 text-xs text-slate-400 leading-relaxed">
-          Il dataset comprende <strong className="text-slate-600">{years.join(' e ')}</strong>,
-          categorie <strong className="text-slate-600">Bevande · Alimentari · Cura Casa · Cura Persona</strong>,
-          canali <strong className="text-slate-600">GDO · HoReCa · Farmacia · Export</strong>.
-          Variazioni di prezzo e costo tra i due anni permettono al modulo Varianza di generare
-          effetti Volume, Mix, Prezzo e Costo significativi.
-        </p>
       </div>
     </div>
   );
