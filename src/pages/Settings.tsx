@@ -57,6 +57,7 @@ function UserModal({ user, onClose, onSaved, token }: ModalProps) {
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState('');
   const [activationUrl,  setActivationUrl]  = useState('');
+  const [emailFailed,    setEmailFailed]    = useState(false);
 
   function toggleModule(id: string) {
     setModules(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
@@ -88,11 +89,21 @@ function UserModal({ user, onClose, onSaved, token }: ModalProps) {
         body: JSON.stringify(body),
       });
       const data = await res.json();
+
+      // User was created but email delivery failed: show activation URL manually
+      if (!res.ok && data.activationUrl) {
+        setActivationUrl(data.activationUrl);
+        setEmailFailed(true);
+        onSaved(); // reload list — user IS in the DB
+        return;
+      }
+
       if (!res.ok) throw new Error(data.error ?? 'Errore imprevisto.');
 
       if (!isEdit && data.activationUrl) {
         setActivationUrl(data.activationUrl);
-        return; // stay open to show the link
+        onSaved(); // reload list immediately even while showing the URL
+        return;
       }
       onSaved();
       onClose();
@@ -116,30 +127,39 @@ function UserModal({ user, onClose, onSaved, token }: ModalProps) {
               {isEdit ? 'Modifica utente' : 'Nuovo utente'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <button
+            onClick={() => { onClose(); }}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Activation link (DEMO_MODE) */}
+        {/* Activation link — shown in DEMO_MODE or when email delivery fails */}
         {activationUrl && (
           <div className="px-6 py-5">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
-              <p className="text-xs font-semibold text-blue-700 mb-1">
-                Utente creato — copia il link di attivazione
+            <div className={`rounded-xl p-4 mb-4 ${emailFailed ? 'bg-amber-50 border border-amber-200' : 'bg-blue-50 border border-blue-200'}`}>
+              <p className={`text-xs font-semibold mb-1 ${emailFailed ? 'text-amber-700' : 'text-blue-700'}`}>
+                {emailFailed
+                  ? 'Utente creato — errore invio email, copia il link manualmente'
+                  : 'Utente creato — copia il link di attivazione'
+                }
               </p>
-              <p className="text-[11px] text-blue-600 mb-3">
-                In modalità demo l'email non viene inviata. Copia e apri questo link per attivare l'account.
+              <p className={`text-[11px] mb-3 ${emailFailed ? 'text-amber-600' : 'text-blue-600'}`}>
+                {emailFailed
+                  ? "L'email di attivazione non è stata inviata (errore SMTP). Copia il link e invialo all'utente."
+                  : "In modalità demo l'email non viene inviata. Copia e apri questo link per attivare l'account."
+                }
               </p>
               <input
                 readOnly
                 value={activationUrl}
                 onClick={e => (e.target as HTMLInputElement).select()}
-                className="w-full text-xs bg-white border border-blue-200 rounded-lg px-3 py-2 text-blue-800 font-mono select-all"
+                className={`w-full text-xs bg-white rounded-lg px-3 py-2 font-mono select-all border ${emailFailed ? 'border-amber-200 text-amber-900' : 'border-blue-200 text-blue-800'}`}
               />
             </div>
             <button
-              onClick={() => { onSaved(); onClose(); }}
+              onClick={onClose}
               className="w-full py-2.5 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors"
             >
               Chiudi

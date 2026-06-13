@@ -351,7 +351,7 @@ app.post('/api/auth/activate', (req, res) => {
 app.get('/api/admin/users', requireAuth, requireAdmin, (_req, res) => {
   const rows = db.prepare(`
     SELECT id, email, name, role, active, can_export, allowed_modules,
-      (activation_token IS NOT NULL AND activation_expires > datetime('now')) AS pending
+      (activation_token IS NOT NULL AND datetime(activation_expires) > datetime('now')) AS pending
     FROM users ORDER BY id
   `).all();
   res.json(rows.map(u => ({
