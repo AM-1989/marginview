@@ -52,6 +52,10 @@ if (DEMO_MODE) {
   console.log('[OTP]    Per attivare email reali: crea server/.env con SMTP_HOST/USER/PASS');
 } else {
   console.log(`[OTP] ✉  SMTP configurato → ${SMTP.host}:${SMTP.port} (from: ${SMTP.from})`);
+  if (!process.env.FRONTEND_URL && !process.env.APP_URL) {
+    console.warn('[CONFIG] ⚠  FRONTEND_URL non impostato — i link nelle email di attivazione useranno localhost:5173');
+    console.warn('[CONFIG]    Aggiungi FRONTEND_URL=https://tuodominio.it al file server/.env');
+  }
 }
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
@@ -325,7 +329,7 @@ app.post('/api/auth/activate', (req, res) => {
 
   const user = db.prepare(`
     SELECT id, email FROM users
-    WHERE activation_token = ? AND activation_expires > datetime('now') AND active = 0
+    WHERE activation_token = ? AND datetime(activation_expires) > datetime('now') AND active = 0
   `).get(token);
 
   if (!user) return res.status(400).json({ error: 'Link di attivazione non valido o scaduto.' });
@@ -387,9 +391,11 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
   try {
     await mailer.sendMail(buildActivationEmail(activationUrl, normalized));
     console.log(`[USERS] ✓ Email attivazione inviata a: ${normalized}`);
+    console.log(`[USERS]   Link attivazione: ${activationUrl}`);
     res.json({ success: true });
   } catch (err) {
     console.error('[USERS] ✗ Errore invio email:', err.message);
+    console.log(`[USERS]   Link attivazione (fallback manuale): ${activationUrl}`);
     res.status(500).json({ error: 'Utente creato ma errore nell\'invio email.', activationUrl });
   }
 });
@@ -453,8 +459,12 @@ app.post('/api/admin/users/:id/resend-activation', requireAuth, requireAdmin, as
 
   try {
     await mailer.sendMail(buildActivationEmail(activationUrl, user.email));
+    console.log(`[USERS] ✓ Email attivazione reinviata a: ${user.email}`);
+    console.log(`[USERS]   Link attivazione: ${activationUrl}`);
     res.json({ success: true });
   } catch (err) {
+    console.error('[USERS] ✗ Errore rinvio email:', err.message);
+    console.log(`[USERS]   Link attivazione (fallback manuale): ${activationUrl}`);
     res.status(500).json({ error: 'Errore invio email.', activationUrl });
   }
 });

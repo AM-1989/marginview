@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Activity, Lock, Eye, EyeOff, User, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   token: string;
 }
 
 export default function ActivateAccount({ token }: Props) {
+  const { logout } = useAuth();
   const [name,     setName]     = useState('');
   const [password, setPassword] = useState('');
   const [confirm,  setConfirm]  = useState('');
@@ -32,7 +34,6 @@ export default function ActivateAccount({ token }: Props) {
       if (!res.ok) throw new Error(data.error ?? 'Errore durante l\'attivazione.');
       setEmail(data.email);
       setDone(true);
-      // Rimuove il ?activate= dall'URL senza ricaricare la pagina
       window.history.replaceState({}, '', '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore imprevisto.');
@@ -66,12 +67,12 @@ export default function ActivateAccount({ token }: Props) {
               <p className="text-slate-500 text-sm mb-6">
                 Puoi ora accedere con <strong>{email}</strong> e la password scelta.
               </p>
-              <a
-                href="/"
-                className="inline-block w-full py-3 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors text-center"
+              <button
+                onClick={() => { logout(); window.location.href = '/'; }}
+                className="w-full py-3 text-sm font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition-colors"
               >
                 Vai al login
-              </a>
+              </button>
             </div>
           ) : (
             <>
