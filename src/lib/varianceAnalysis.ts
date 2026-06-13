@@ -48,36 +48,85 @@ export interface FilterOptions {
   canale: string[];
 }
 
+// ─── Technical flags per reference line ───────────────────────────────────────
+
+export interface TechnicalFlags {
+  newInP2: boolean;
+  discontinuedInP2: boolean;
+  priceFallback: boolean;
+  costFallback: boolean;
+  marginFallback: boolean;
+}
+
+// ─── ComparedLine = TechnicalRow ──────────────────────────────────────────────
+// One row per referenceKey after full outer join.
+// Raw fields: null when the period has no data (q=0).
+// Effective fields: always numeric — fallback applied for calculation scenarios.
+// p1/c1/p2/c2: backward-compat aliases pointing to raw values (null when absent).
+
 export interface ComparedLine {
-  key: string;         // = codiceMateriale
+  // ── Identity ──────────────────────────────────────────────────────────────
+  key: string;
   codice: string;
   descrizione: string;
   brand: string;
   categoria: string;
   sottocategoria: string;
   formato: string;
-  // P1
+  paese: string;
+  canale: string;
+
+  // ── Presence ──────────────────────────────────────────────────────────────
+  presence: 'both' | 'onlyP1' | 'onlyP2';
+  isOnlyP1: boolean;
+  isOnlyP2: boolean;
+
+  // ── P1 aggregates ─────────────────────────────────────────────────────────
   q1: number;
   rev1: number;
   cost1: number;
-  p1: number | null;   // avg unit price P1
-  c1: number | null;   // avg unit cost P1
   margin1: number;
-  marginPct1: number | null;
-  // P2
+  marginPct1Raw: number | null;   // null if rev1 = 0
+  marginPct1: number | null;      // = marginPct1Raw (for display)
+
+  // ── P1 unit rates ─────────────────────────────────────────────────────────
+  price1Raw: number | null;         // null if q1 = 0
+  unitCost1Raw: number | null;      // null if q1 = 0
+  price1Effective: number;          // price1Raw ?? price2Raw ?? 0
+  unitCost1Effective: number;       // unitCost1Raw ?? unitCost2Raw ?? 0
+
+  // ── P2 aggregates ─────────────────────────────────────────────────────────
   q2: number;
   rev2: number;
   cost2: number;
+  margin2: number;
+  marginPct2Raw: number | null;
+  marginPct2: number | null;
+
+  // ── P2 unit rates ─────────────────────────────────────────────────────────
+  price2Raw: number | null;
+  unitCost2Raw: number | null;
+  price2Effective: number;          // price2Raw ?? price1Raw ?? 0
+  unitCost2Effective: number;       // unitCost2Raw ?? unitCost1Raw ?? 0
+
+  // ── Mix shares (set after Q1/Q2 are known) ────────────────────────────────
+  mix1: number;   // q1 / Q1
+  mix2: number;   // q2 / Q2
+
+  // ── Backward-compat aliases (raw values, null when period absent) ─────────
+  p1: number | null;
+  c1: number | null;
   p2: number | null;
   c2: number | null;
-  margin2: number;
-  marginPct2: number | null;
-  // Delta
+
+  // ── Flags & warnings ──────────────────────────────────────────────────────
+  flags: TechnicalFlags;
+  warnings: string[];
+
+  // ── Delta ─────────────────────────────────────────────────────────────────
   deltaMargin: number;
-  deltaMarginPct: number | null;  // pp (decimal)
+  deltaMarginPct: number | null;   // pp, null when one period has no revenue
   deltaRev: number;
-  isOnlyP1: boolean;
-  isOnlyP2: boolean;
 }
 
 export interface TableGroup {
@@ -86,6 +135,8 @@ export interface TableGroup {
   categoria: string;
   sottocategoria: string;
   formato: string;
+  lineCount: number;
+  presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
   rev1: number;
   cost1: number;
   margin1: number;
@@ -149,7 +200,6 @@ export interface AIInsight {
 }
 
 // ─── Debug flag ────────────────────────────────────────────────────────────────
-// Set to true to enable debug logging to the browser console
 const DEBUG_VARIANCE = true;
 function dbg(...args: unknown[]) {
   if (DEBUG_VARIANCE) console.log('[VARIANCE]', ...args);
@@ -162,31 +212,28 @@ const MONTH_NAMES = [
   'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
 ];
 
-// ─── STEP 1: parseNum — robust number parser ───────────────────────────────────
+// ─── String normalizer ─────────────────────────────────────────────────────────
+
+function normalizeStr(s: unknown): string {
+  return String(s ?? '').trim().toLowerCase().normalize('NFC');
+}
+
+// ─── parseNum — robust number parser ──────────────────────────────────────────
 // Critical: XLSX.sheet_to_json returns numeric cells as JS numbers.
 // Never convert a JS number to string — the dot-stripping logic would corrupt decimals.
-// Example: 524.67 → String → "524.67" → removeAllDots → "52467" → 100× inflation (BUG).
 
 export function parseNum(v: unknown): number {
-  // JS number from XLSX — use directly, no string conversion
   if (typeof v === 'number') return isFinite(v) ? v : 0;
   if (v === null || v === undefined || v === '') return 0;
 
   let s = String(v).replace(/[€\s]/g, '').trim();
   if (!s) return 0;
 
-  // Italian "1.234,56": has both dot and comma → dot = thousands sep, comma = decimal sep
   if (s.includes('.') && s.includes(',')) {
     s = s.replace(/\./g, '').replace(',', '.');
-  }
-  // Italian "1234,56": only comma → comma = decimal sep
-  else if (s.includes(',') && !s.includes('.')) {
+  } else if (s.includes(',') && !s.includes('.')) {
     s = s.replace(',', '.');
   }
-  // English "1234.56": only dot → dot = decimal sep, keep as-is
-  // Note: "1.234" (Italian thousands) is ambiguous without a comma.
-  // We cannot reliably distinguish, but numeric Excel cells never reach this branch
-  // (they are handled by the typeof check above).
 
   return parseFloat(s) || 0;
 }
@@ -245,20 +292,18 @@ const COL_MAP: Record<string, string[]> = {
     'fatturato', 'ricavi', 'vendite', 'revenue', 'sales', 'fatturato netto',
     'importo', 'ricavo', 'totale fatturato', 'ricavi netti',
   ],
-  // Unit cost — must NOT be a "totale/total" column (those are detected separately)
   costoUnitario: [
     'costo unitario/tariffa', 'costo unitario / tariffa',
     'costo unitario', 'tariffa', 'costo medio', 'unit cost', 'unitcost',
     'costo unit.', 'costo/unità', 'costo/unita', 'costo per unità', 'costo per pezzo',
   ],
-  // Total cost column — if present, use directly (do NOT multiply by quantity)
   costoTotaleCol: [
     'costo totale', 'costi totali', 'total cost', 'costo', 'costi',
     'totale costi', 'costo variabile totale',
   ],
 };
 
-// ─── STEP 2: normalizeRows — parse Excel raw rows into VarRow[] ────────────────
+// ─── normalizeRows — parse Excel raw rows into VarRow[] ───────────────────────
 
 export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
   if (!raw.length) return [];
@@ -272,21 +317,13 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
   dbg('Column mapping:', cols);
   dbg('Total raw rows:', raw.length);
 
-  // If both costoUnitario and costoTotaleCol are found, prefer costoUnitario.
-  // costoTotaleCol is only used if costoUnitario is missing.
-  const hasCostoUnit  = !!cols['costoUnitario'];
-  const hasCostoTot   = !!cols['costoTotaleCol'];
-  const useTotalCost  = !hasCostoUnit && hasCostoTot;
+  const hasCostoUnit = !!cols['costoUnitario'];
+  const hasCostoTot  = !!cols['costoTotaleCol'];
+  const useTotalCost = !hasCostoUnit && hasCostoTot;
 
-  if (useTotalCost) {
-    dbg('WARNING: No unit cost column found. Using total cost column directly (will NOT multiply by qty).');
-  }
-  if (!cols['fatturato']) {
-    dbg('WARNING: No fatturato column found! KPIs will be wrong.');
-  }
-  if (!cols['codiceMateriale']) {
-    dbg('WARNING: No product code column found. Using row index as key.');
-  }
+  if (useTotalCost) dbg('WARNING: No unit cost column — using total cost column directly (NOT multiplied by qty).');
+  if (!cols['fatturato'])       dbg('WARNING: No fatturato column found! KPIs will be wrong.');
+  if (!cols['codiceMateriale']) dbg('WARNING: No product code column found. Using row index as key.');
 
   const get = (r: Record<string, unknown>, field: string) =>
     cols[field] ? r[cols[field]!] : undefined;
@@ -309,7 +346,6 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
       costoTotale   = costoUnitario * quantita;
     }
 
-    // Skip rows with no meaningful data
     if (fatturato === 0 && quantita === 0) { skipped++; return; }
 
     rows.push({
@@ -330,11 +366,10 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
     });
   });
 
-  dbg(`normalizeRows: ${rows.length} rows kept, ${skipped} skipped (fatturato=0 AND qty=0)`);
+  dbg(`normalizeRows: ${rows.length} rows kept, ${skipped} skipped`);
   return rows;
 }
 
-// ─── Backwards-compat alias used by the UI ────────────────────────────────────
 export function parseExcelToVarRows(raw: Record<string, unknown>[]): VarRow[] {
   return normalizeRows(raw);
 }
@@ -382,11 +417,8 @@ export function extractFilterOptions(rows: VarRow[]): FilterOptions {
   return opts;
 }
 
-// ─── STEP 3: applyFilters — AND logic, pure function ─────────────────────────
-// Rules:
-// - Empty array for a dim = "include all" (filter not active)
-// - All active dims must match (AND, not OR)
-// - Comparison is case-sensitive (values come from the data itself)
+// ─── applyFilters — AND logic ─────────────────────────────────────────────────
+// Empty array for a dim = "include all". All active dims must match (AND, not OR).
 
 export function applyFilters(
   rows: VarRow[],
@@ -395,7 +427,7 @@ export function applyFilters(
   return rows.filter(r => {
     for (const dim of FILTER_DIMS) {
       const vals = activeFilters[dim];
-      if (!vals || vals.length === 0) continue;  // filter not active for this dim
+      if (!vals || vals.length === 0) continue;
       const rv = (r[dim as keyof VarRow] as string) ?? '';
       if (!vals.includes(rv)) return false;
     }
@@ -403,26 +435,46 @@ export function applyFilters(
   });
 }
 
-// ─── STEP 4: splitPeriods — filter rows by period keys ───────────────────────
-
 export function splitPeriods(rows: VarRow[], periodKeys: string[]): VarRow[] {
   const pSet = new Set(periodKeys);
   return rows.filter(r => pSet.has(toPeriodKey(r.anno, r.mese)));
 }
 
-// ─── Backwards-compat: used by UI component ──────────────────────────────────
 export function filterRowsByPeriodAndFilters(
   rows: VarRow[],
   periodKeys: string[],
   activeFilters: Partial<Record<FilterDim, string[]>>,
 ): VarRow[] {
-  const byPeriod = splitPeriods(rows, periodKeys);
-  return applyFilters(byPeriod, activeFilters);
+  return applyFilters(splitPeriods(rows, periodKeys), activeFilters);
 }
 
-// ─── STEP 5: aggregatePeriod — group by codiceMateriale (primary key) ─────────
-// Rule: margine % = sum(margine) / sum(fatturato), NOT the average of margine % per row.
-// Primary key is always codiceMateriale — not categoria|||brand.
+// ─── buildReferenceKeyFn ──────────────────────────────────────────────────────
+// Scans the combined P1+P2 dataset (post-filter) to detect whether product codes
+// are unique. If a code maps to more than one distinct description, a composite
+// key (code | description) is used to avoid merging different products.
+
+function buildReferenceKeyFn(allRows: VarRow[]): (row: VarRow) => string {
+  const codeToDescs = new Map<string, Set<string>>();
+  for (const r of allRows) {
+    const code = normalizeStr(r.codiceMateriale);
+    if (code) {
+      if (!codeToDescs.has(code)) codeToDescs.set(code, new Set());
+      codeToDescs.get(code)!.add(normalizeStr(r.descrizione));
+    }
+  }
+
+  return (row: VarRow): string => {
+    const code = row.codiceMateriale.trim();
+    const desc = row.descrizione.trim();
+    if (!code) return desc || '_unknown_';
+    const descs = codeToDescs.get(normalizeStr(code));
+    const isUnique = !descs || descs.size <= 1;
+    return isUnique ? code : (desc ? `${code} | ${desc}` : code);
+  };
+}
+
+// ─── aggregatePeriod — group by referenceKey ──────────────────────────────────
+// margine % = sum(margine) / sum(fatturato), NOT average of row-level margin %.
 
 interface AggLine {
   codice: string;
@@ -431,16 +483,21 @@ interface AggLine {
   categoria: string;
   sottocategoria: string;
   formato: string;
+  paese: string;
+  canale: string;
   q: number;
   rev: number;
   cost: number;
 }
 
-export function aggregatePeriod(rows: VarRow[]): Map<string, AggLine> {
+export function aggregatePeriod(
+  rows: VarRow[],
+  getKey: (row: VarRow) => string = (r) => r.codiceMateriale || r.descrizione || '_unknown_',
+): Map<string, AggLine> {
   const map = new Map<string, AggLine>();
 
   for (const r of rows) {
-    const k = r.codiceMateriale;  // PRIMARY KEY — never categoria|||brand
+    const k = getKey(r);
     if (!map.has(k)) {
       map.set(k, {
         codice: r.codiceMateriale,
@@ -449,6 +506,8 @@ export function aggregatePeriod(rows: VarRow[]): Map<string, AggLine> {
         categoria: r.categoria,
         sottocategoria: r.sottocategoria,
         formato: r.formato,
+        paese: r.paese,
+        canale: r.canale,
         q: 0, rev: 0, cost: 0,
       });
     }
@@ -456,21 +515,23 @@ export function aggregatePeriod(rows: VarRow[]): Map<string, AggLine> {
     a.q    += r.quantita;
     a.rev  += r.fatturato;
     a.cost += r.costoTotale;
-    // Keep first non-empty values for descriptive fields
     if (!a.brand          && r.brand)          a.brand          = r.brand;
     if (!a.categoria      && r.categoria)      a.categoria      = r.categoria;
     if (!a.sottocategoria && r.sottocategoria) a.sottocategoria = r.sottocategoria;
     if (!a.formato        && r.formato)        a.formato        = r.formato;
     if (!a.descrizione    && r.descrizione)    a.descrizione    = r.descrizione;
+    if (!a.paese          && r.paese)          a.paese          = r.paese;
+    if (!a.canale         && r.canale)         a.canale         = r.canale;
   }
 
   return map;
 }
 
-// ─── STEP 6: fullOuterJoinPeriods — union of all product keys ─────────────────
-// Products only in P1: their delta lands in the volume/mix effect.
-// Products only in P2: their delta lands in the volume/mix effect.
-// Fallback prices/costs: price/cost effect = 0 for new/discontinued products.
+// ─── fullOuterJoinPeriods ─────────────────────────────────────────────────────
+// Union of all referenceKeys from P1 and P2.
+// onlyP1 products: fallback price2/cost2Effective = price1Raw/unitCost1Raw → effPrezzo=0, effCosto=0.
+// onlyP2 products: fallback price1/cost1Effective = price2Raw/unitCost2Raw → effPrezzo=0, effCosto=0.
+// All impact for new/discontinued products lands in effMix.
 
 export function fullOuterJoinPeriods(
   agg1: Map<string, AggLine>,
@@ -491,43 +552,102 @@ export function fullOuterJoinPeriods(
     const rev2  = d2?.rev  ?? 0;
     const cost2 = d2?.cost ?? 0;
 
-    // Fallback price/cost for new/discontinued products:
-    // Price effect = 0 (price P1 = price P2 by fallback)
-    // Cost effect  = 0 (cost  P1 = cost  P2 by fallback)
-    // Delta goes entirely to volume/mix effect.
-    const p1 = q1 > 0 ? rev1  / q1 : (q2 > 0 ? rev2  / q2 : null);
-    const c1 = q1 > 0 ? cost1 / q1 : (q2 > 0 ? cost2 / q2 : null);
-    const p2 = q2 > 0 ? rev2  / q2 : (q1 > 0 ? rev1  / q1 : null);
-    const c2 = q2 > 0 ? cost2 / q2 : (q1 > 0 ? cost1 / q1 : null);
+    // ── Raw unit rates: null when the period has no quantity ─────────────────
+    const price1Raw:    number | null = q1 > 0 ? rev1  / q1 : null;
+    const unitCost1Raw: number | null = q1 > 0 ? cost1 / q1 : null;
+    const price2Raw:    number | null = q2 > 0 ? rev2  / q2 : null;
+    const unitCost2Raw: number | null = q2 > 0 ? cost2 / q2 : null;
 
+    // ── Effective unit rates: fallback cross-period ───────────────────────────
+    // For onlyP2: price1Effective = price2Raw  → Scenario V contributes 0 (mix1=0)
+    //             but Scenario M uses q2×price1Effective = q2×price2, giving correct margin
+    // For onlyP1: price2Effective = price1Raw  → effPrezzo=0, effCosto=0 for this line
+    const price1Effective:    number = price1Raw    ?? price2Raw    ?? 0;
+    const unitCost1Effective: number = unitCost1Raw ?? unitCost2Raw ?? 0;
+    const price2Effective:    number = price2Raw    ?? price1Raw    ?? 0;
+    const unitCost2Effective: number = unitCost2Raw ?? unitCost1Raw ?? 0;
+
+    const priceFallback = (price1Raw === null && price2Raw !== null) ||
+                          (price2Raw === null && price1Raw !== null);
+    const costFallback  = (unitCost1Raw === null && unitCost2Raw !== null) ||
+                          (unitCost2Raw === null && unitCost1Raw !== null);
+
+    // ── Margin aggregates ─────────────────────────────────────────────────────
     const margin1    = rev1 - cost1;
     const margin2    = rev2 - cost2;
-    const marginPct1 = rev1  > 0 ? margin1  / rev1  : null;
-    const marginPct2 = rev2  > 0 ? margin2  / rev2  : null;
+    const marginPct1Raw: number | null = rev1 > 0 ? margin1 / rev1 : null;
+    const marginPct2Raw: number | null = rev2 > 0 ? margin2 / rev2 : null;
+
+    // ── Presence ──────────────────────────────────────────────────────────────
+    const presence: 'both' | 'onlyP1' | 'onlyP2' =
+      !d1 ? 'onlyP2' : !d2 ? 'onlyP1' : 'both';
+
+    const warnings: string[] = [];
+    if (priceFallback) warnings.push(`price fallback applied (${presence})`);
+    if (costFallback)  warnings.push(`cost fallback applied (${presence})`);
 
     lines.push({
       key,
-      codice:       meta.codice,
-      descrizione:  meta.descrizione,
-      brand:        meta.brand,
-      categoria:    meta.categoria,
+      codice:        meta.codice,
+      descrizione:   meta.descrizione,
+      brand:         meta.brand,
+      categoria:     meta.categoria,
       sottocategoria: meta.sottocategoria,
-      formato:      meta.formato,
-      q1, rev1, cost1, p1, c1, margin1, marginPct1,
-      q2, rev2, cost2, p2, c2, margin2, marginPct2,
+      formato:       meta.formato,
+      paese:         meta.paese,
+      canale:        meta.canale,
+
+      presence,
+      isOnlyP1: presence === 'onlyP1',
+      isOnlyP2: presence === 'onlyP2',
+
+      q1, rev1, cost1, margin1,
+      marginPct1Raw, marginPct1: marginPct1Raw,
+      price1Raw, unitCost1Raw, price1Effective, unitCost1Effective,
+
+      q2, rev2, cost2, margin2,
+      marginPct2Raw, marginPct2: marginPct2Raw,
+      price2Raw, unitCost2Raw, price2Effective, unitCost2Effective,
+
+      // Mix shares initialised to 0; set after Q1/Q2 known
+      mix1: 0,
+      mix2: 0,
+
+      // Backward-compat: raw values (null = no data for that period)
+      p1: price1Raw,
+      c1: unitCost1Raw,
+      p2: price2Raw,
+      c2: unitCost2Raw,
+
+      flags: {
+        newInP2:         presence === 'onlyP2',
+        discontinuedInP2: presence === 'onlyP1',
+        priceFallback,
+        costFallback,
+        marginFallback:  false,
+      },
+      warnings,
+
       deltaMargin:    margin2 - margin1,
-      deltaMarginPct: marginPct1 !== null && marginPct2 !== null
-        ? marginPct2 - marginPct1 : null,
+      deltaMarginPct: marginPct1Raw !== null && marginPct2Raw !== null
+        ? marginPct2Raw - marginPct1Raw : null,
       deltaRev: rev2 - rev1,
-      isOnlyP1: !d2,
-      isOnlyP2: !d1,
     });
   }
 
   return lines;
 }
 
-// ─── STEP 7: calculateBaseKpis ────────────────────────────────────────────────
+// ─── enrichWithMix — set mix1/mix2 once Q1/Q2 are known ──────────────────────
+
+function enrichWithMix(lines: ComparedLine[], Q1: number, Q2: number): void {
+  for (const l of lines) {
+    l.mix1 = Q1 > 0 ? l.q1 / Q1 : 0;
+    l.mix2 = Q2 > 0 ? l.q2 / Q2 : 0;
+  }
+}
+
+// ─── calculateBaseKpis ────────────────────────────────────────────────────────
 
 interface BaseKpis {
   totalRev1: number;  totalRev2: number;
@@ -538,34 +658,31 @@ interface BaseKpis {
 }
 
 export function calculateBaseKpis(lines: ComparedLine[]): BaseKpis {
-  const totalRev1   = lines.reduce((s, l) => s + l.rev1,   0);
-  const totalRev2   = lines.reduce((s, l) => s + l.rev2,   0);
-  const totalCost1  = lines.reduce((s, l) => s + l.cost1,  0);
-  const totalCost2  = lines.reduce((s, l) => s + l.cost2,  0);
+  const totalRev1    = lines.reduce((s, l) => s + l.rev1,   0);
+  const totalRev2    = lines.reduce((s, l) => s + l.rev2,   0);
+  const totalCost1   = lines.reduce((s, l) => s + l.cost1,  0);
+  const totalCost2   = lines.reduce((s, l) => s + l.cost2,  0);
   const totalMargin1 = totalRev1 - totalCost1;
   const totalMargin2 = totalRev2 - totalCost2;
-  const marginPctP1  = totalRev1  > 0 ? totalMargin1 / totalRev1  : 0;
-  const marginPctP2  = totalRev2  > 0 ? totalMargin2 / totalRev2  : 0;
+  const marginPctP1  = totalRev1 > 0 ? totalMargin1 / totalRev1 : 0;
+  const marginPctP2  = totalRev2 > 0 ? totalMargin2 / totalRev2 : 0;
   const Q1 = lines.reduce((s, l) => s + l.q1, 0);
   const Q2 = lines.reduce((s, l) => s + l.q2, 0);
-  return { totalRev1, totalRev2, totalCost1, totalCost2, totalMargin1, totalMargin2,
-           marginPctP1, marginPctP2, Q1, Q2 };
+  return { totalRev1, totalRev2, totalCost1, totalCost2,
+           totalMargin1, totalMargin2, marginPctP1, marginPctP2, Q1, Q2 };
 }
 
-// ─── STEP 8: calculateVarianceEffects ────────────────────────────────────────
-// Four-scenario sequential decomposition on margin percentage (not €).
+// ─── calculateVarianceEffects ─────────────────────────────────────────────────
+// Sequential 4-scenario decomposition on margin percentage (not €).
 //
-// Scenario V  — Q2 total, P1 mix, P1 prices, P1 costs
-//   By construction effVolume ≈ 0 (same mix as P1, just scaled to Q2 volume)
+// Scenario V — Q2 total, P1 mix, P1 prices, P1 costs  → effVolume ≈ 0
+// Scenario M — actual Q2 quantities, P1 prices, P1 costs → effMix
+// Scenario P — actual Q2 quantities, P2 prices, P1 costs → effPrezzo
+// Scenario C — actual P2 (= actual Q2, P2 prices, P2 costs) → effCosto
 //
-// Scenario M  — actual Q2 quantities, P1 prices, P1 costs
-//   effMix = marginPctM - marginPctV
-//
-// Scenario P  — actual Q2 quantities, P2 prices, P1 costs
-//   effPrezzo = marginPctP - marginPctM
-//
-// Scenario C  — actual P2 (= actual Q2, P2 prices, P2 costs)
-//   effCosto = marginPctP2 - marginPctP
+// All scenarios use price_Effective / unitCost_Effective so that
+// onlyP1/onlyP2 products generate effPrezzo = 0 and effCosto = 0,
+// with their full impact landing in effMix.
 
 export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis): {
   effVolume: number;
@@ -578,29 +695,33 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
 } {
   const { marginPctP1, marginPctP2, totalRev2, Q1, Q2 } = kpis;
 
-  // Scenario V: Q2_total × mix1_i, P1 prices, P1 costs
+  // Scenario V: Q2_total × mix1_i, P1 effective prices, P1 effective costs
+  // onlyP2: mix1 = 0 → no contribution (correct: new product cannot affect volume)
   let revV = 0, costV = 0;
   for (const l of lines) {
     const mix1 = Q1 > 0 ? l.q1 / Q1 : 0;
     const qV   = Q2 * mix1;
-    revV  += qV * (l.p1 ?? 0);
-    costV += qV * (l.c1 ?? 0);
+    revV  += qV * l.price1Effective;
+    costV += qV * l.unitCost1Effective;
   }
   const marginPctV = revV > 0 ? (revV - costV) / revV : marginPctP1;
   const effVolume  = marginPctV - marginPctP1;
 
-  // Scenario M: actual q2_i, P1 prices, P1 costs
+  // Scenario M: actual q2_i, P1 effective prices, P1 effective costs
+  // onlyP2: q2 × price1Effective = q2 × price2Raw (fallback) → margin at P2 prices
+  // onlyP1: q2 = 0 → product disappears → negative mix contribution
   let revM = 0, costM = 0;
   for (const l of lines) {
-    revM  += l.q2 * (l.p1 ?? 0);
-    costM += l.q2 * (l.c1 ?? 0);
+    revM  += l.q2 * l.price1Effective;
+    costM += l.q2 * l.unitCost1Effective;
   }
   const marginPctM = revM > 0 ? (revM - costM) / revM : marginPctV;
   const effMix     = marginPctM - marginPctV;
 
-  // Scenario P: actual q2_i, P2 prices, P1 costs (revenue = actual P2)
+  // Scenario P: actual q2_i, P2 effective prices, P1 effective costs
+  // sum(q2_i × price2Effective_i) = totalRev2 exactly (price2Effective = rev2/q2 or 0)
   let costP = 0;
-  for (const l of lines) costP += l.q2 * (l.c1 ?? 0);
+  for (const l of lines) costP += l.q2 * l.unitCost1Effective;
   const marginPctP = totalRev2 > 0 ? (totalRev2 - costP) / totalRev2 : marginPctM;
   const effPrezzo  = marginPctP - marginPctM;
 
@@ -610,7 +731,7 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   return { effVolume, effMix, effPrezzo, effCosto, marginPctV, marginPctM, marginPctP };
 }
 
-// ─── STEP 9: validateVarianceBridge ──────────────────────────────────────────
+// ─── validateVarianceBridge ───────────────────────────────────────────────────
 
 export function validateVarianceBridge(
   kpis: BaseKpis,
@@ -667,7 +788,6 @@ function buildCategoryWaterfall(
   let running = total1;
 
   pts.push({ name: 'P1', spacer: 0, total: total1, green: 0, red: 0, rawValue: total1, isTotal: true });
-
   for (const [cat, v] of top) {
     if (v >= 0) {
       pts.push({ name: cat, spacer: running, total: 0, green: v, red: 0, rawValue: v, isTotal: false });
@@ -676,7 +796,6 @@ function buildCategoryWaterfall(
     }
     running += v;
   }
-
   pts.push({ name: 'P2', spacer: 0, total: total2, green: 0, red: 0, rawValue: total2, isTotal: true });
   return pts;
 }
@@ -710,17 +829,25 @@ function buildEffectsWaterfall(
   return pts;
 }
 
-// ─── Table groups (for UI table, grouped by brand × categoria) ────────────────
+// ─── buildTableGroups — rollup after reference-level calculation ───────────────
+// Group key: brand | categoria (both available) or whichever is present.
+// Group-level effects use price_Effective for consistency with global effects.
 
 function buildTableGroups(lines: ComparedLine[]): TableGroup[] {
   const map = new Map<string, TableGroup>();
 
   for (const l of lines) {
-    const gKey = [l.categoria, l.brand].filter(Boolean).join(' | ') || l.codice;
+    // Consistent group key: brand | categoria
+    const gKey = l.brand && l.categoria
+      ? `${l.brand} | ${l.categoria}`
+      : l.brand || l.categoria || l.codice;
+
     if (!map.has(gKey)) {
       map.set(gKey, {
         key: gKey, brand: l.brand, categoria: l.categoria,
         sottocategoria: l.sottocategoria, formato: l.formato,
+        lineCount: 0,
+        presence: l.presence,
         rev1: 0, cost1: 0, margin1: 0, marginPct1: null,
         rev2: 0, cost2: 0, margin2: 0, marginPct2: null,
         effVolMix: null, effPrezzo: null, effCosto: null, effTotale: null,
@@ -729,11 +856,13 @@ function buildTableGroups(lines: ComparedLine[]): TableGroup[] {
     }
     const g = map.get(gKey)!;
     g.lines.push(l);
+    g.lineCount++;
     g.rev1  += l.rev1;  g.cost1 += l.cost1;
     g.rev2  += l.rev2;  g.cost2 += l.cost2;
   }
 
   for (const g of map.values()) {
+    // ── Aggregate margin from sums, not average of % ──────────────────────────
     g.margin1    = g.rev1 - g.cost1;
     g.margin2    = g.rev2 - g.cost2;
     g.marginPct1 = g.rev1 > 0 ? g.margin1 / g.rev1 : null;
@@ -742,14 +871,30 @@ function buildTableGroups(lines: ComparedLine[]): TableGroup[] {
     if (g.marginPct1 !== null && g.marginPct2 !== null)
       g.effTotale = g.marginPct2 - g.marginPct1;
 
-    // Scenario M at group level: Q2 actual, P1 prices/costs
+    // ── Presence of the group ────────────────────────────────────────────────
+    const presences = new Set(g.lines.map(l => l.presence));
+    if (presences.size === 1) {
+      g.presence = [...presences][0] as 'both' | 'onlyP1' | 'onlyP2';
+    } else {
+      g.presence = 'mixed';
+    }
+
+    // ── Group-level effects (approximate, for display only) ───────────────────
+    // Uses price_Effective to be consistent with global calculation.
+    // Scenario M at group level: actual q2, P1 effective prices/costs
     let revM = 0, costM = 0;
-    for (const l of g.lines) { revM += l.q2 * (l.p1 ?? 0); costM += l.q2 * (l.c1 ?? 0); }
+    for (const l of g.lines) {
+      revM  += l.q2 * l.price1Effective;
+      costM += l.q2 * l.unitCost1Effective;
+    }
     const mM = revM > 0 ? (revM - costM) / revM : null;
 
-    // Scenario P at group level: Q2 actual, P2 prices, P1 costs
+    // Scenario P at group level: actual q2, P2 effective prices, P1 effective costs
     let revP = 0, costP = 0;
-    for (const l of g.lines) { revP += l.q2 * (l.p2 ?? 0); costP += l.q2 * (l.c1 ?? 0); }
+    for (const l of g.lines) {
+      revP  += l.q2 * l.price2Effective;
+      costP += l.q2 * l.unitCost1Effective;
+    }
     const mP = revP > 0 ? (revP - costP) / revP : null;
 
     if (g.marginPct1 !== null && mM !== null) g.effVolMix = mM - g.marginPct1;
@@ -770,32 +915,41 @@ function fmtE(v: number): string {
   }).format(v);
 }
 
-// ─── Main entry point ─────────────────────────────────────────────────────────
-// Combines all steps: agg → join → kpis → effects → validation → output.
+// ─── computeVarianceEffects — main entry point ────────────────────────────────
+// Flow: getReferenceKeyFn → aggregatePeriod × 2 → fullOuterJoin → kpis
+//       → enrichWithMix → effects → quadrature → tableGroups → waterfall → drivers
 
 export function computeVarianceEffects(
   rowsP1: VarRow[],
   rowsP2: VarRow[],
 ): EffectsResult {
-  // ── Step 5: aggregate by codiceMateriale ────────────────────────────────────
-  const agg1 = aggregatePeriod(rowsP1);
-  const agg2 = aggregatePeriod(rowsP2);
+  dbg('─── computeVarianceEffects ─────────────────────────────────────');
+  dbg('P1 raw rows:', rowsP1.length);
+  dbg('P2 raw rows:', rowsP2.length);
 
-  dbg('P1 rows:', rowsP1.length, '→', agg1.size, 'referenze');
-  dbg('P2 rows:', rowsP2.length, '→', agg2.size, 'referenze');
+  // ── Reference key function — built from combined dataset ─────────────────
+  const getKey = buildReferenceKeyFn([...rowsP1, ...rowsP2]);
+
+  // ── Step 5: aggregate by referenceKey ───────────────────────────────────
+  const agg1 = aggregatePeriod(rowsP1, getKey);
+  const agg2 = aggregatePeriod(rowsP2, getKey);
+
+  dbg('P1 referenze:', agg1.size);
+  dbg('P2 referenze:', agg2.size);
 
   const keysOnlyP1 = [...agg1.keys()].filter(k => !agg2.has(k));
   const keysOnlyP2 = [...agg2.keys()].filter(k => !agg1.has(k));
-  const keysCommon  = [...agg1.keys()].filter(k =>  agg2.has(k));
+  const keysBoth   = [...agg1.keys()].filter(k =>  agg2.has(k));
 
   dbg('Keys only P1:', keysOnlyP1.length, keysOnlyP1.slice(0, 5));
   dbg('Keys only P2:', keysOnlyP2.length, keysOnlyP2.slice(0, 5));
-  dbg('Keys common: ', keysCommon.length);
+  dbg('Keys both:   ', keysBoth.length);
 
-  // ── Step 6: full outer join ─────────────────────────────────────────────────
+  // ── Step 6: full outer join ──────────────────────────────────────────────
   const lines = fullOuterJoinPeriods(agg1, agg2);
+  dbg('technicalRows (after join):', lines.length);
 
-  // ── Step 7: base KPIs ───────────────────────────────────────────────────────
+  // ── Step 8: base KPIs from technicalRows ────────────────────────────────
   const kpis = calculateBaseKpis(lines);
 
   dbg('─── KPI P1 ───────────────────────────────────────────────────');
@@ -811,23 +965,44 @@ export function computeVarianceEffects(
   dbg('Margine% P2  :', (kpis.marginPctP2 * 100).toFixed(4), '%');
   dbg('Q2           :', kpis.Q2.toFixed(2));
 
-  // Validate mix sums ≈ 1
-  const sumMix1 = kpis.Q1 > 0 ? lines.reduce((s, l) => s + l.q1 / kpis.Q1, 0) : 0;
-  const sumMix2 = kpis.Q2 > 0 ? lines.reduce((s, l) => s + l.q2 / kpis.Q2, 0) : 0;
-  dbg('Sum mix1     :', sumMix1.toFixed(6), '(expected ≈ 1)');
-  dbg('Sum mix2     :', sumMix2.toFixed(6), '(expected ≈ 1)');
+  // ── Enrich lines with mix1/mix2 ─────────────────────────────────────────
+  enrichWithMix(lines, kpis.Q1, kpis.Q2);
 
-  // ── Step 8: variance effects ────────────────────────────────────────────────
+  const sumMix1 = lines.reduce((s, l) => s + l.mix1, 0);
+  const sumMix2 = lines.reduce((s, l) => s + l.mix2, 0);
+  dbg('Sum mix1:', sumMix1.toFixed(6), '(expected ≈ 1)');
+  dbg('Sum mix2:', sumMix2.toFixed(6), '(expected ≈ 1)');
+
+  // ── Step 9: variance effects ────────────────────────────────────────────
   const eff = calculateVarianceEffects(lines, kpis);
 
-  // ── Step 9: quadrature validation ──────────────────────────────────────────
+  dbg('effVolume:', (eff.effVolume * 100).toFixed(4), 'pp');
+  dbg('effMix:   ', (eff.effMix    * 100).toFixed(4), 'pp');
+  dbg('effPrezzo:', (eff.effPrezzo * 100).toFixed(4), 'pp');
+  dbg('effCosto: ', (eff.effCosto  * 100).toFixed(4), 'pp');
+
+  // Lines with fallback applied
+  const fallbackLines = lines.filter(l => l.flags.priceFallback || l.flags.costFallback);
+  if (fallbackLines.length > 0)
+    dbg('Fallback applied to:', fallbackLines.length, 'referenze',
+        fallbackLines.map(l => l.key).slice(0, 10));
+
+  // ── Step 13: quadrature ──────────────────────────────────────────────────
   const quad = validateVarianceBridge(kpis, eff);
 
-  // ── Build table groups ──────────────────────────────────────────────────────
+  if (!quad.isBalanced) {
+    dbg('⚠ QUADRATURE FAILED — problematic lines:',
+        lines.filter(l => l.flags.priceFallback || l.flags.costFallback || l.warnings.length > 0)
+             .map(l => ({ key: l.key, presence: l.presence, warnings: l.warnings })));
+  }
+
+  // ── Step 10: rollup for display ──────────────────────────────────────────
   const tableGroups = buildTableGroups(lines);
 
-  // ── Waterfall data ──────────────────────────────────────────────────────────
-  const waterfallRev    = buildCategoryWaterfall(
+  dbg('tableGroups:', tableGroups.length);
+
+  // ── Waterfall data ───────────────────────────────────────────────────────
+  const waterfallRev = buildCategoryWaterfall(
     lines, l => l.rev1, l => l.rev2, kpis.totalRev1, kpis.totalRev2,
   );
   const waterfallMargin = buildCategoryWaterfall(
@@ -838,16 +1013,20 @@ export function computeVarianceEffects(
     eff.effPrezzo, eff.effCosto, kpis.marginPctP2,
   );
 
-  // ── Top drivers ─────────────────────────────────────────────────────────────
+  // ── Top drivers — reference-level, not rollup ───────────────────────────
+  // Rank by |deltaMarginPct| for lines present in both periods.
+  // onlyP1/onlyP2 have null deltaMarginPct and are excluded from % rankings.
   const withDelta    = lines.filter(l => l.deltaMarginPct !== null);
   const topVariations = [...withDelta]
     .sort((a, b) => Math.abs(b.deltaMarginPct!) - Math.abs(a.deltaMarginPct!)).slice(0, 3);
-  const topBest  = [...withDelta]
+  const topBest = [...withDelta]
     .filter(l => (l.deltaMarginPct ?? 0) > 0)
     .sort((a, b) => b.deltaMarginPct! - a.deltaMarginPct!).slice(0, 3);
   const topWorst = [...withDelta]
     .filter(l => (l.deltaMarginPct ?? 0) < 0)
     .sort((a, b) => a.deltaMarginPct! - b.deltaMarginPct!).slice(0, 3);
+
+  dbg('─── Done ───────────────────────────────────────────────────────');
 
   return {
     totalRev1: kpis.totalRev1, totalRev2: kpis.totalRev2,
@@ -865,7 +1044,7 @@ export function computeVarianceEffects(
   };
 }
 
-// ─── Deterministic AI insights ────────────────────────────────────────────────
+// ─── generateInsights (deterministic) ────────────────────────────────────────
 
 export function generateInsights(e: EffectsResult): AIInsight[] {
   const revGrowth    = e.totalRev1 > 0 ? (e.totalRev2 - e.totalRev1) / e.totalRev1 * 100 : 0;
@@ -876,7 +1055,6 @@ export function generateInsights(e: EffectsResult): AIInsight[] {
   const deltaMargPct = (e.marginPctP2 - e.marginPctP1) * 100;
 
   const pos = (n: number) => n >= 0 ? '+' : '';
-
   const insights: AIInsight[] = [];
 
   if (revGrowth > 10)

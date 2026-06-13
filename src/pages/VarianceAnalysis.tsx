@@ -918,6 +918,7 @@ export default function VarianceAnalysis() {
                           const mg: TableGroup = {
                             key: l.key, brand: l.brand, categoria: l.categoria,
                             sottocategoria: l.sottocategoria, formato: l.formato,
+                            lineCount: 1, presence: l.presence,
                             rev1: l.rev1, cost1: l.cost1, margin1: l.margin1, marginPct1: l.marginPct1,
                             rev2: l.rev2, cost2: l.cost2, margin2: l.margin2, marginPct2: l.marginPct2,
                             effVolMix: null, effPrezzo: null, effCosto: null, effTotale: l.deltaMarginPct,
@@ -1039,6 +1040,7 @@ export default function VarianceAnalysis() {
                           const mg: TableGroup = {
                             key: l.key, brand: l.brand, categoria: l.categoria,
                             sottocategoria: l.sottocategoria, formato: l.formato,
+                            lineCount: 1, presence: l.presence,
                             rev1: l.rev1, cost1: l.cost1, margin1: l.margin1, marginPct1: l.marginPct1,
                             rev2: l.rev2, cost2: l.cost2, margin2: l.margin2, marginPct2: l.marginPct2,
                             effVolMix: null, effPrezzo: null, effCosto: null, effTotale: l.deltaMarginPct,
