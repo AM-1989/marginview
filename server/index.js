@@ -379,7 +379,7 @@ app.post('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
     VALUES (?, '', ?, ?, 0, ?, ?, ?, ?)
   `).run(normalized, name || null, role || 'user', canExport !== false ? 1 : 0, modulesJson, activationToken, activationExpires);
 
-  const appUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const appUrl = (process.env.FRONTEND_URL || process.env.APP_URL || req.get('origin') || 'http://localhost:5173').replace(/\/$/, '');
   const activationUrl = `${appUrl}/?activate=${activationToken}`;
 
   if (DEMO_MODE) {
@@ -449,7 +449,7 @@ app.post('/api/admin/users/:id/resend-activation', requireAuth, requireAdmin, as
   db.prepare('UPDATE users SET activation_token = ?, activation_expires = ? WHERE id = ?')
     .run(activationToken, activationExpires, id);
 
-  const appUrl = (process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const appUrl = (process.env.FRONTEND_URL || process.env.APP_URL || req.get('origin') || 'http://localhost:5173').replace(/\/$/, '');
   const activationUrl = `${appUrl}/?activate=${activationToken}`;
 
   if (DEMO_MODE) {
