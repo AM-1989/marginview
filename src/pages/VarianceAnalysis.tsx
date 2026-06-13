@@ -831,7 +831,7 @@ export default function VarianceAnalysis() {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
                     { label: 'Effetto Volume', v: effects.effVolume },
-                    { label: 'Eff. Mix',       v: effects.effMix },
+                    { label: 'Effetto Mix',    v: effects.effMix },
                     { label: 'Effetto Prezzo', v: effects.effPrezzo },
                     { label: 'Effetto Costo',  v: effects.effCosto },
                   ].map(({ label, v }) => (
@@ -842,23 +842,32 @@ export default function VarianceAnalysis() {
                   ))}
                 </div>
 
-                {/* Mix section — solo Effetto Mix Totale globale (calcolato su technicalRows) */}
-                <div className={`rounded-xl p-5 border ${effects.effMix > 0 ? 'bg-emerald-50 border-emerald-200' : effects.effMix < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Effetto Mix Totale</p>
-                  <p className={`text-3xl font-bold tabular-nums mb-2 ${clrPp(effects.effMix)}`}>{fmtPp(effects.effMix)}</p>
-                  <p className="text-xs text-slate-600">
-                    {effects.effMix > 0.001
-                      ? 'Il mix prodotti migliora la redditività — prodotti ad alto margine pesano di più in P2.'
-                      : effects.effMix < -0.001
-                        ? 'Il mix prodotti peggiora la redditività — prodotti a basso margine pesano di più in P2.'
-                        : 'Il mix prodotti ha impatto marginale sulla redditività.'
-                    }
-                  </p>
-                  <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                    Effetto calcolato a prezzi e costi P1 su volumi P2. Include prodotti nuovi (onlyP2) e usciti (onlyP1).
-                    Le variazioni per singolo gruppo sono nella sezione "Variazione Margine % per Gruppo" in basso.
-                  </p>
-                </div>
+                {/* Varianza totale — riepilogo con formula di quadratura */}
+                {(() => {
+                  const delta = effects.marginPctP2 - effects.marginPctP1;
+                  const fmtEff = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}`;
+                  return (
+                    <div className={`rounded-xl p-5 border ${delta > 0 ? 'bg-emerald-50 border-emerald-200' : delta < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Varianza Totale</p>
+                      <p className={`text-3xl font-bold tabular-nums mb-3 ${clrPp(delta)}`}>
+                        {fmtPp(delta)}
+                      </p>
+                      <p className="text-xs text-slate-500 font-mono leading-relaxed">
+                        = Volume ({fmtEff(effects.effVolume)})
+                        {' '}+ Mix ({fmtEff(effects.effMix)})
+                        {' '}+ Prezzo ({fmtEff(effects.effPrezzo)})
+                        {' '}+ Costo ({fmtEff(effects.effCosto)}) pp
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-2">
+                        M% P1 {fmtPct(effects.marginPctP1 * 100)} → M% P2 {fmtPct(effects.marginPctP2 * 100)}
+                        {effects.isBalanced
+                          ? ' — quadratura verificata ✓'
+                          : ` — sbilancio ${(effects.quadratureDiff * 100).toFixed(4)} pp ⚠`}
+                      </p>
+                    </div>
+                  );
+                })()}
+
               </div>
             </div>
 
