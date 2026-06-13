@@ -176,7 +176,23 @@ function DriverCard({ line, rank }: { line: ComparedLine; rank: number }) {
   );
 }
 
+// ─── Presence badge ───────────────────────────────────────────────────────────
+
+function PresenceBadge({ presence }: { presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed' }) {
+  if (presence === 'onlyP2')
+    return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Nuovo in P2</span>;
+  if (presence === 'onlyP1')
+    return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-600 whitespace-nowrap">Uscito in P2</span>;
+  return null;
+}
+
 // ─── Effects table row ────────────────────────────────────────────────────────
+// Columns: Brand | Categoria | Sottocategoria | M% P1 | Delta M% Gruppo
+//          | Eff. Prezzo | Eff. Costo | Eff. P+C | M% P2 | Stato
+//
+// "Delta M% Gruppo" = M% P2 − M% P1 (osservato, non un effetto).
+// "Eff. P+C"        = effPrezzo + effCosto (componente spiegata dal modello).
+// La differenza tra i due è la componente mix/volume interna al gruppo.
 
 function EffectsTableRow({
   group, expanded, onToggle,
@@ -186,9 +202,10 @@ function EffectsTableRow({
   onToggle: () => void;
 }) {
   const hasChildren = group.lines.length > 1;
-  const quadOk = group.effTotale !== null && group.effVolMix !== null &&
-    group.effPrezzo !== null && group.effCosto !== null &&
-    Math.abs((group.effVolMix + group.effPrezzo + group.effCosto) - group.effTotale) <= 0.002;
+
+  // Effetto Totale (P+C): somma degli effetti spiegati dal modello a livello gruppo
+  const effPC = group.effPrezzo !== null && group.effCosto !== null
+    ? group.effPrezzo + group.effCosto : null;
 
   return (
     <>
@@ -196,48 +213,79 @@ function EffectsTableRow({
         className={`hover:bg-slate-50 transition-colors border-b border-slate-100 ${hasChildren ? 'cursor-pointer' : ''}`}
         onClick={hasChildren ? onToggle : undefined}
       >
-        <td className="px-4 py-3 text-xs font-medium text-slate-700 flex items-center gap-1.5">
-          {hasChildren && (
-            expanded
-              ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-          )}
-          {group.brand || '—'}
+        {/* Brand */}
+        <td className="px-4 py-3 text-xs font-medium text-slate-700">
+          <div className="flex items-center gap-1.5">
+            {hasChildren && (
+              expanded
+                ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            )}
+            {group.brand || '—'}
+          </div>
         </td>
+        {/* Categoria */}
         <td className="px-4 py-3 text-xs text-slate-600">{group.categoria || '—'}</td>
+        {/* Sottocategoria */}
         <td className="px-4 py-3 text-xs text-slate-500">{group.sottocategoria || '—'}</td>
+        {/* M% P1 */}
         <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
           {nd(group.marginPct1, v => fmtPct(v * 100))}
         </td>
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${group.effVolMix !== null ? clrPp(group.effVolMix) : 'text-slate-400'}`}>
-          {group.effVolMix !== null ? fmtPp(group.effVolMix) : 'N/D'}
+        {/* Delta M% Gruppo = M%P2 − M%P1 (osservato) */}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
+          {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
         </td>
+        {/* Eff. Prezzo */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-400'}`}>
           {group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
         </td>
+        {/* Eff. Costo */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${group.effCosto !== null ? clrPp(group.effCosto) : 'text-slate-400'}`}>
           {group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
         </td>
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
-          {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
-          {!quadOk && group.effTotale !== null && (
-            <span title="Verifica non precisa" className="ml-1 text-amber-400">⚠</span>
-          )}
+        {/* Eff. P+C (componente spiegata) */}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${effPC !== null ? clrPp(effPC) : 'text-slate-400'}`}>
+          {effPC !== null ? fmtPp(effPC) : 'N/D'}
         </td>
+        {/* M% P2 */}
         <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
           {nd(group.marginPct2, v => fmtPct(v * 100))}
+        </td>
+        {/* Stato */}
+        <td className="px-4 py-3 text-center">
+          <PresenceBadge presence={group.presence} />
         </td>
       </tr>
       {expanded && group.lines.map(l => (
         <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
+          {/* Codice (colSpan 2) */}
           <td className="px-4 py-2 pl-8 text-slate-500 font-mono" colSpan={2}>{l.codice}</td>
-          <td className="px-4 py-2 text-slate-500 max-w-32 truncate" title={l.descrizione}>{l.descrizione}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-500">{nd(l.marginPct1, v => fmtPct(v * 100))}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400" colSpan={3}>—</td>
+          {/* Descrizione + badge */}
+          <td className="px-4 py-2 text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate max-w-28" title={l.descrizione}>{l.descrizione}</span>
+              <PresenceBadge presence={l.presence} />
+            </div>
+          </td>
+          {/* M% P1 — N/D se onlyP2 */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-500">
+            {l.isOnlyP2 ? <span className="text-slate-400">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
+          </td>
+          {/* Delta M% individuale */}
           <td className={`px-4 py-2 tabular-nums text-right font-semibold ${l.deltaMarginPct !== null ? clrPp(l.deltaMarginPct) : 'text-slate-400'}`}>
             {l.deltaMarginPct !== null ? fmtPp(l.deltaMarginPct) : 'N/D'}
           </td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-500">{nd(l.marginPct2, v => fmtPct(v * 100))}</td>
+          {/* Eff. Prezzo / Costo / P+C — non significativi a livello singola referenza */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-300" colSpan={3}>—</td>
+          {/* M% P2 — N/D se onlyP1 */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-500">
+            {l.isOnlyP1 ? <span className="text-slate-400">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
+          </td>
+          {/* Stato */}
+          <td className="px-4 py-2 text-center">
+            <PresenceBadge presence={l.presence} />
+          </td>
         </tr>
       ))}
     </>
@@ -327,13 +375,32 @@ function DetailTableRow({ group, expanded, onToggle, isGrouped }: {
       </tr>
       {expanded && group.lines.map(l => (
         <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
-          <td className="px-4 py-2 pl-9 text-slate-500">{l.descrizione || l.codice}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{l.rev1 > 0 ? fmtEur.format(l.rev1) : '—'}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{l.rev1 > 0 ? fmtEur.format(l.cost1) : '—'}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{nd(l.marginPct1, v => fmtPct(v * 100))}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{l.rev2 > 0 ? fmtEur.format(l.rev2) : '—'}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{l.rev2 > 0 ? fmtEur.format(l.cost2) : '—'}</td>
-          <td className="px-4 py-2 tabular-nums text-right text-slate-400">{nd(l.marginPct2, v => fmtPct(v * 100))}</td>
+          <td className="px-4 py-2 pl-9 text-slate-500">
+            <div className="flex items-center gap-1.5">
+              <span>{l.descrizione || l.codice}</span>
+              <PresenceBadge presence={l.presence} />
+            </div>
+          </td>
+          {/* P1: N/D se onlyP2 */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.rev1) : '—')}
+          </td>
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.cost1) : '—')}
+          </td>
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
+          </td>
+          {/* P2: N/D se onlyP1 */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.rev2) : '—')}
+          </td>
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.cost2) : '—')}
+          </td>
+          <td className="px-4 py-2 tabular-nums text-right text-slate-400">
+            {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
+          </td>
           <td className={`px-4 py-2 tabular-nums text-right font-semibold ${l.deltaMarginPct !== null ? clrPp(l.deltaMarginPct) : 'text-slate-400'}`}>
             {l.deltaMarginPct !== null ? fmtPp(l.deltaMarginPct) : 'N/D'}
           </td>
@@ -726,11 +793,10 @@ export default function VarianceAnalysis() {
                 <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
                   <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-semibold text-blue-700 mb-0.5">Analisi Aggregata per Categoria</p>
+                    <p className="text-xs font-semibold text-blue-700 mb-0.5">Decomposizione calcolata per singola referenza</p>
                     <p className="text-xs text-blue-600 leading-relaxed">
-                      I dati sono aggregati per categoria-brand per garantire stabilità nell'analisi.
-                      Il confronto utilizza full outer join: tutte le linee presenti in P1 o P2 sono incluse,
-                      inclusi prodotti nuovi o discontinuati.
+                      Gli effetti Volume, Mix, Prezzo e Costo sono calcolati referenza per referenza (full outer join P1 ∪ P2),
+                      poi aggregati. Prodotti nuovi in P2 (onlyP2) e usciti in P2 (onlyP1) sono inclusi e contribuiscono all'Effetto Mix.
                     </p>
                   </div>
                 </div>
@@ -776,53 +842,40 @@ export default function VarianceAnalysis() {
                   ))}
                 </div>
 
-                {/* Mix section */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                    <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mb-3">Composizione Effetto Mix</p>
-                    <div className="space-y-2">
-                      {effects.tableGroups.slice(0, 8).map(g => {
-                        const gMix = g.effVolMix;
-                        return (
-                          <div key={g.key} className="flex items-center justify-between text-xs">
-                            <span className="text-slate-600 truncate max-w-36" title={g.key}>{g.key}</span>
-                            <span className={`font-semibold tabular-nums ${gMix !== null ? clrPp(gMix) : 'text-slate-400'}`}>
-                              {gMix !== null ? fmtPp(gMix) : 'N/D'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className={`rounded-xl p-5 border ${effects.effMix > 0 ? 'bg-emerald-50 border-emerald-200' : effects.effMix < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Effetto Mix Totale</p>
-                    <p className={`text-3xl font-bold tabular-nums mb-2 ${clrPp(effects.effMix)}`}>{fmtPp(effects.effMix)}</p>
-                    <p className="text-xs text-slate-600">
-                      {effects.effMix > 0.001
-                        ? 'Il mix prodotti sta migliorando la redditività'
-                        : effects.effMix < -0.001
-                          ? 'Il mix prodotti sta peggiorando la redditività'
-                          : 'Il mix prodotti ha impatto marginale sulla redditività'
-                      }
-                    </p>
-                  </div>
+                {/* Mix section — solo Effetto Mix Totale globale (calcolato su technicalRows) */}
+                <div className={`rounded-xl p-5 border ${effects.effMix > 0 ? 'bg-emerald-50 border-emerald-200' : effects.effMix < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Effetto Mix Totale</p>
+                  <p className={`text-3xl font-bold tabular-nums mb-2 ${clrPp(effects.effMix)}`}>{fmtPp(effects.effMix)}</p>
+                  <p className="text-xs text-slate-600">
+                    {effects.effMix > 0.001
+                      ? 'Il mix prodotti migliora la redditività — prodotti ad alto margine pesano di più in P2.'
+                      : effects.effMix < -0.001
+                        ? 'Il mix prodotti peggiora la redditività — prodotti a basso margine pesano di più in P2.'
+                        : 'Il mix prodotti ha impatto marginale sulla redditività.'
+                    }
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                    Effetto calcolato a prezzi e costi P1 su volumi P2. Include prodotti nuovi (onlyP2) e usciti (onlyP1).
+                    Le variazioni per singolo gruppo sono nella sezione "Variazione Margine % per Gruppo" in basso.
+                  </p>
                 </div>
               </div>
             </div>
 
-            {/* ── Tabella Effetti ────────────────────────────────────────────── */}
+            {/* ── Variazione Margine % per Gruppo ───────────────────────────── */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100">
-                <h3 className="text-sm font-semibold text-slate-800">Tabella Effetti</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Per gruppo Brand/Categoria — clicca ▶ per espandere il dettaglio prodotti</p>
+                <h3 className="text-sm font-semibold text-slate-800">Variazione Margine % per Gruppo</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Delta M% Gruppo = M% P2 − M% P1 (osservato). Eff. Prezzo e Costo = componenti spiegate dal modello a livello gruppo. Clicca ▶ per il dettaglio referenze.
+                </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Brand', 'Categoria', 'Sottocategoria', 'M% P1', 'Eff. Mix/Vol', 'Eff. Prezzo', 'Eff. Costo', 'Eff. Totale', 'M% P2'].map(h => (
-                        <th key={h} className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wide text-right first:text-left whitespace-nowrap">
+                      {['Brand', 'Categoria', 'Sottocategoria', 'M% P1', 'Delta M% Gruppo', 'Eff. Prezzo', 'Eff. Costo', 'Eff. P+C', 'M% P2', 'Stato'].map(h => (
+                        <th key={h} className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wide text-right first:text-left whitespace-nowrap last:text-center">
                           {h}
                         </th>
                       ))}
