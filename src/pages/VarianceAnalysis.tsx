@@ -22,11 +22,11 @@ import type {
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 const fmtEur = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fmtPct = (v: number, dec = 2) => `${v.toFixed(dec)}%`;
-const fmtPp  = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp`;
+const fmtPct = (v: number, dec = 2) => isFinite(v) ? `${v.toFixed(dec)}%` : 'N/D';
+const fmtPp  = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : 'N/D';
 const fmtDiff = (v: number) => `${v >= 0 ? '+' : ''}${fmtEur.format(v)}`;
 const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : 'text-slate-500';
-const nd     = (v: number | null, fmt: (n: number) => string) => v !== null ? fmt(v) : 'N/D';
+const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && isFinite(v) ? fmt(v) : 'N/D';
 
 // ─── Waterfall tooltip ────────────────────────────────────────────────────────
 
@@ -201,10 +201,14 @@ function EffectsTableRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const hasChildren = group.lines.length > 1;
+  // Always expandable: even single-SKU groups show the reference code/description on expand
+  const hasChildren = group.lines.length > 0;
 
-  // Effetto Totale (P+C): somma degli effetti spiegati dal modello a livello gruppo
-  const effPC = group.effPrezzo !== null && group.effCosto !== null
+  // For pure onlyP1/P2 groups, price/cost effects are 0 by construction (not meaningful)
+  const isPureOneSide = group.presence === 'onlyP1' || group.presence === 'onlyP2';
+
+  // Effetto P+C: somma degli effetti spiegati dal modello a livello gruppo
+  const effPC = (!isPureOneSide && group.effPrezzo !== null && group.effCosto !== null)
     ? group.effPrezzo + group.effCosto : null;
 
   return (
@@ -236,17 +240,17 @@ function EffectsTableRow({
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
           {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
         </td>
-        {/* Eff. Prezzo */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-400'}`}>
-          {group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
+        {/* Eff. Prezzo — N/D per gruppi presenti in un solo periodo */}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-300'}`}>
+          {isPureOneSide ? '—' : group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
         </td>
         {/* Eff. Costo */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${group.effCosto !== null ? clrPp(group.effCosto) : 'text-slate-400'}`}>
-          {group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effCosto !== null ? clrPp(group.effCosto) : 'text-slate-300'}`}>
+          {isPureOneSide ? '—' : group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
         </td>
-        {/* Eff. P+C (componente spiegata) */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${effPC !== null ? clrPp(effPC) : 'text-slate-400'}`}>
-          {effPC !== null ? fmtPp(effPC) : 'N/D'}
+        {/* Eff. P+C */}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${effPC !== null ? clrPp(effPC) : 'text-slate-300'}`}>
+          {effPC !== null ? fmtPp(effPC) : '—'}
         </td>
         {/* M% P2 */}
         <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
@@ -339,7 +343,7 @@ function DetailTableRow({ group, expanded, onToggle, isGrouped, totalRev1, total
   group: TableGroup; expanded: boolean; onToggle: () => void; isGrouped: boolean;
   totalRev1: number; totalRev2: number;
 }) {
-  const hasChildren = isGrouped && group.lines.length > 1;
+  const hasChildren = isGrouped && group.lines.length > 0;
 
   const contributo = (totalRev2 > 0 ? group.margin2 / totalRev2 : 0)
                    - (totalRev1 > 0 ? group.margin1 / totalRev1 : 0);
@@ -350,16 +354,18 @@ function DetailTableRow({ group, expanded, onToggle, isGrouped, totalRev1, total
         className={`border-b border-slate-100 hover:bg-slate-50 transition-colors text-xs ${hasChildren ? 'cursor-pointer' : ''}`}
         onClick={hasChildren ? onToggle : undefined}
       >
-        <td className="px-4 py-3 text-slate-700 font-medium flex items-center gap-1.5">
-          {hasChildren && (
-            expanded
-              ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-          )}
-          {isGrouped
-            ? `${group.categoria || group.brand || group.key}${group.lines.length > 1 ? ` — ${group.lines.length} prodotti` : ''}`
-            : (group.lines[0]?.descrizione || group.key)
-          }
+        <td className="px-4 py-3 text-slate-700 font-medium">
+          <div className="flex items-center gap-1.5">
+            {hasChildren && (
+              expanded
+                ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            )}
+            {isGrouped
+              ? `${group.categoria || group.brand || group.key}${group.lines.length > 1 ? ` — ${group.lines.length} prodotti` : ''}`
+              : (group.lines[0]?.descrizione || group.key)
+            }
+          </div>
         </td>
         <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1  > 0 ? fmtEur.format(group.rev1) : 'N/D'}</td>
         <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1  > 0 ? fmtEur.format(group.cost1) : 'N/D'}</td>

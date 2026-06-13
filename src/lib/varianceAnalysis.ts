@@ -768,7 +768,7 @@ function buildCategoryWaterfall(
   getV2: (l: ComparedLine) => number,
   total1: number,
   total2: number,
-  maxCats = 8,
+  maxCats = 4,
 ): WaterfallPoint[] {
   const catContrib = new Map<string, number>();
   for (const l of lines) {
