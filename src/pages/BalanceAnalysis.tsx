@@ -315,17 +315,17 @@ export default function BalanceAnalysis() {
             <TrendingUp className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-slate-900 leading-tight">Analisi Bilancio</h1>
+            <h1 className="text-lg font-bold leading-tight">Analisi Bilancio</h1>
             <p className="text-xs text-slate-500">KPI Finanziari</p>
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center px-8 py-12">
-          <div className="w-full max-w-xl space-y-4">
+          <div className="w-full max-w-[600px] space-y-4">
             <div
-              className={`border-2 border-dashed rounded-2xl p-14 flex flex-col items-center gap-6 cursor-pointer transition-colors bg-white ${
+              className={`border-2 border-dashed rounded-2xl p-14 text-center cursor-pointer transition-colors bg-white ${
                 uploadDragging
-                  ? 'border-violet-400 bg-violet-50'
-                  : 'border-slate-300 hover:border-violet-400 hover:bg-violet-50/40'
+                  ? 'border-blue-400 bg-blue-50'
+                  : 'border-slate-300 hover:border-slate-400'
               }`}
               onDragOver={e => { e.preventDefault(); setUploadDragging(true); }}
               onDragLeave={() => setUploadDragging(false)}
@@ -336,22 +336,23 @@ export default function BalanceAnalysis() {
               onClick={() => uploadInputRef.current?.click()}
             >
               {loadingFile
-                ? <Loader2 className="w-12 h-12 text-violet-500 animate-spin" />
-                : <Upload className="w-12 h-12 text-slate-300" />
+                ? <Loader2 className="w-10 h-10 mx-auto text-blue-500 mb-5 animate-spin" />
+                : <Upload className="w-10 h-10 mx-auto text-slate-400 mb-5" />
               }
-              <div className="text-center">
-                <h2 className="text-base font-semibold text-slate-700 mb-1">Carica il file Excel</h2>
-                <p className="text-sm text-slate-400">Trascina qui il file oppure clicca per selezionarlo</p>
-              </div>
-              <div className="w-full border-t border-slate-100 pt-5 space-y-2 text-center">
-                <p className="text-xs text-slate-500">
-                  <span className="font-semibold">Colonne:</span>{' '}
-                  Anno · Ricavi · CostoDelVenduto · CostiOperativi · Ammortamenti · OneriFinanziari · Imposte
-                </p>
-                <p className="text-xs text-slate-400">
-                  + AttivitaCorrente · Rimanenze · CreditiClienti · Liquidita · AttivitaNonCorrente · PatrimoniNetto · DebitiFinanziari · DebitiFornitori · AltrePassivitaCorrente
-                </p>
-              </div>
+              <h2 className="text-base font-bold text-slate-800 mb-2">
+                {loadingFile ? 'Caricamento in corso…' : 'Carica il file Excel'}
+              </h2>
+              {!loadingFile && (
+                <>
+                  <p className="text-sm text-slate-500">
+                    Colonne CE: Anno · Ricavi · CostoDelVenduto · CostiOperativi · Ammortamenti · OneriFinanziari · Imposte
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1.5">
+                    + SP: AttivitaCorrente · Rimanenze · CreditiClienti · Liquidita · AttivitaNonCorrente · PatrimoniNetto · DebitiFinanziari
+                  </p>
+                  <p className="text-sm text-slate-400 mt-4">Trascina qui o clicca per selezionare (.xlsx, .xls, .csv)</p>
+                </>
+              )}
               <input
                 ref={uploadInputRef}
                 type="file"
@@ -362,7 +363,7 @@ export default function BalanceAnalysis() {
             </div>
             <button
               onClick={() => setYears([BLANK_YEAR(new Date().getFullYear())])}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:border-violet-300 hover:text-violet-700 transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors"
             >
               <Plus className="w-4 h-4" />
               Inserisci dati manualmente

@@ -5,7 +5,7 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  Upload, Loader2, FileSpreadsheet, Filter, AlertTriangle,
+  Upload, Loader2, Filter, AlertTriangle,
   CheckCircle2, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
   RotateCcw, X, Info,
 } from 'lucide-react';
@@ -514,88 +514,51 @@ export default function VarianceAnalysis() {
   // ─────────────────────────────────────────────────────────────────────────────
   if (!rows) {
     return (
-      <div className="min-h-full bg-slate-50 flex flex-col items-center justify-center px-6 py-12">
-        <div className="w-full max-w-2xl">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-slate-900 mb-2">🧮 Analisi Varianze Margini</h1>
-            <p className="text-sm text-slate-500 max-w-lg mx-auto leading-relaxed">
-              Carica il tuo file Excel per analizzare gli effetti Volume, Mix, Prezzo e Costo sui margini percentuali
-            </p>
+      <div className="min-h-full flex flex-col bg-slate-50">
+        <div className="px-8 pt-8 pb-2 flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-emerald-600 flex items-center justify-center">
+            <TrendingUp className="h-5 w-5 text-white" />
           </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-8 pt-7 pb-2 border-b border-slate-100">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center">
-                  <FileSpreadsheet className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <h2 className="text-base font-semibold text-slate-800">Carica Dati Finanziari</h2>
-                  <p className="text-xs text-slate-400">Carica un file Excel con i dati granulari per l'analisi degli effetti</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8">
-              <div
-                className={`border-2 border-dashed rounded-xl py-12 flex flex-col items-center gap-4 cursor-pointer transition-colors ${
-                  dragging ? 'border-blue-400 bg-blue-50' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50/40'
-                }`}
-                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-                onClick={() => uploadRef.current?.click()}
-              >
-                {loading
-                  ? <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
-                  : <Upload className="w-10 h-10 text-slate-300" />
-                }
-                <div className="text-center">
-                  <p className="text-sm font-medium text-slate-600">Trascina qui il tuo file Excel</p>
-                  <p className="text-xs text-slate-400 mt-1">oppure</p>
-                </div>
-                <button
-                  type="button"
-                  className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-                  onClick={e => { e.stopPropagation(); uploadRef.current?.click(); }}
-                >
-                  Sfoglia File
-                </button>
-                <p className="text-xs text-slate-400">.xlsx e .xls</p>
-                <input
-                  ref={uploadRef} type="file" accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
-                />
-              </div>
-            </div>
-
-            <div className="px-8 pb-8">
-              <div className="bg-slate-50 rounded-xl p-5 border border-slate-100">
-                <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mb-3">Formato Excel Richiesto:</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  {[
-                    ['Codice Materiale', 'Codice univoco del prodotto/servizio'],
-                    ['Descrizione Materiale', 'Nome del prodotto/servizio'],
-                    ['Anno', 'Anno di competenza'],
-                    ['Mese', 'Mese di competenza (numero o nome italiano)'],
-                    ['Quantità', 'Quantità venduta'],
-                    ['Fatturato', 'Ricavi netti'],
-                    ['Costo Unitario / Tariffa', 'Costo per unità'],
-                    ['Brand', 'Brand del prodotto (opzionale)'],
-                    ['Categoria', 'Categoria del prodotto (opzionale)'],
-                    ['Sottocategoria', 'Sottocategoria (opzionale)'],
-                    ['Formato', 'Formato del prodotto (opzionale)'],
-                    ['Paese / Canale', 'Dimensioni aggiuntive (opzionali)'],
-                  ].map(([col, desc]) => (
-                    <div key={col} className="flex gap-2 text-xs">
-                      <span className="font-semibold text-slate-700 flex-shrink-0">{col}:</span>
-                      <span className="text-slate-500">{desc}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+          <div>
+            <h1 className="text-lg font-bold leading-tight">Varianza Marginalità</h1>
+            <p className="text-xs text-slate-500">Waterfall analysis Δ Margine</p>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-8 py-12">
+          <div
+            className={`w-full max-w-[600px] border-2 border-dashed rounded-2xl p-14 text-center cursor-pointer transition-colors bg-white ${
+              dragging ? 'border-blue-400 bg-blue-50' : 'border-slate-300 hover:border-slate-400'
+            }`}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+            onClick={() => uploadRef.current?.click()}
+          >
+            {loading
+              ? <Loader2 className="w-10 h-10 mx-auto text-blue-500 mb-5 animate-spin" />
+              : <Upload className="w-10 h-10 mx-auto text-slate-400 mb-5" />
+            }
+            <h2 className="text-base font-bold text-slate-800 mb-2">
+              {loading ? 'Caricamento in corso…' : 'Carica il file Excel'}
+            </h2>
+            {!loading && (
+              <>
+                <p className="text-sm text-slate-500">
+                  Colonne: Codice Materiale, Descrizione, Anno, Mese, Quantità, Fatturato, Costo Unitario
+                </p>
+                <p className="text-sm text-slate-500 mt-1.5">
+                  + colonne opzionali (rilevate da intestazione): <strong className="text-slate-700">Brand</strong>, <strong className="text-slate-700">Categoria</strong>, Sottocategoria, Formato, Paese/Canale
+                </p>
+                <p className="text-sm text-slate-400 mt-4">Trascina qui o clicca per selezionare (.xlsx, .xls)</p>
+              </>
+            )}
+            <input
+              ref={uploadRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
+            />
           </div>
         </div>
       </div>
