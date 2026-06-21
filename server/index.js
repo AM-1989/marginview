@@ -614,7 +614,7 @@ app.post('/api/deploy', (req, res) => {
   console.log('[DEPLOY] ▶ Avvio deploy.sh...');
 
   const logFile = path.join(__dirname, 'deploy.log');
-  const fs      = require('fs');
+
 
   // Intestazione nel log
   fs.appendFileSync(logFile, `\n=== DEPLOY ${new Date().toISOString()} ===\n`);
@@ -646,7 +646,6 @@ app.get('/api/deploy/log', (req, res) => {
   if (!token || token !== secret) return res.status(401).json({ error: 'Token non valido.' });
 
   const logFile = path.join(__dirname, 'deploy.log');
-  const fs = require('fs');
   if (!fs.existsSync(logFile)) return res.json({ log: '(nessun deploy eseguito ancora)' });
 
   const content = fs.readFileSync(logFile, 'utf8');
@@ -658,7 +657,6 @@ app.get('/api/deploy/log', (req, res) => {
 
 // ── Serve frontend (dist/) in production ─────────────────────────────────────
 
-const fs = require('fs');
 const distPath = path.join(__dirname, '..', 'dist');
 
 if (fs.existsSync(distPath)) {
