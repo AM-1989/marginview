@@ -7,6 +7,7 @@ const express    = require('express');
 const cors       = require('cors');
 const Database   = require('better-sqlite3');
 const crypto     = require('crypto');
+const fs         = require('fs');
 const path       = require('path');
 const nodemailer = require('nodemailer');
 
@@ -84,6 +85,21 @@ app.use(express.json());
 const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, 'database.sqlite');
 console.log(`[DB] Path: ${DB_PATH}`);
 
+// Warn when using the default in-repo path — on Hostinger this file is wiped on every deploy.
+// Fix: set DATABASE_PATH in server/.env to a directory outside the project folder.
+// Esempio: DATABASE_PATH=/home/u976446016/databases/marginview.sqlite
+if (!process.env.DATABASE_PATH) {
+  console.warn('[DB] ⚠  DATABASE_PATH non impostato — il database è dentro la cartella del progetto.');
+  console.warn('[DB]    Su Hostinger (o qualsiasi piattaforma che ricrea la directory al deploy)');
+  console.warn('[DB]    TUTTI GLI UTENTI VENGONO PERSI ad ogni deploy/restart!');
+  console.warn('[DB]    → Aggiungi DATABASE_PATH=/percorso/esterno/marginview.sqlite in server/.env');
+}
+
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
@@ -127,10 +143,12 @@ const generateOtp = () => String(Math.floor(crypto.randomInt(0, 1_000_000))).pad
 
 const { n: userCount } = db.prepare('SELECT COUNT(*) AS n FROM users').get();
 if (userCount === 0) {
+  console.warn('[DB] ⚠  Database VUOTO — database azzerato o primo avvio.');
   db.prepare('INSERT INTO users (email, password, name, role, active) VALUES (?, ?, ?, ?, ?)')
     .run('admin@moro.it', hashPwd('Password123!'), 'Amministratore', 'admin', 1);
   console.log('[DB] Seed: admin@moro.it creato');
 } else {
+  console.log(`[DB] Utenti registrati: ${userCount}`);
   // Ensure existing admin has correct role (handles DB migrated from old schema)
   db.prepare("UPDATE users SET role='admin', active=1 WHERE email='admin@moro.it' AND (role IS NULL OR role='' OR role='user')")
     .run();
