@@ -11,9 +11,9 @@ interface NavItem {
 }
 
 const MODULE_ITEMS: NavItem[] = [
-  { id: 'abc',      label: 'Matrice ABC',         sublabel: 'Fatturato × Margine', icon: BarChart3  },
-  { id: 'variance', label: 'Varianza Marginalità', sublabel: 'Waterfall analysis',  icon: TrendingUp },
-  { id: 'balance',  label: 'Analisi Bilancio',     sublabel: 'KPI finanziari',       icon: LineChart  },
+  { id: 'abc',      label: 'Matrice ABC',          sublabel: 'Fatturato × Margine',  icon: BarChart3  },
+  { id: 'variance', label: 'Varianza Marginalità',  sublabel: 'Waterfall analysis',   icon: TrendingUp },
+  { id: 'balance',  label: 'Analisi Bilancio',      sublabel: 'KPI finanziari',        icon: LineChart  },
 ];
 
 interface SidebarProps {
@@ -33,25 +33,32 @@ function NavButton({
     <button
       onClick={onClick}
       className={`
-        w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left
-        transition-all duration-150
+        w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left
+        transition-all duration-150 group
         ${isActive
-          ? 'bg-white/[0.12] text-white'
-          : 'text-slate-400 hover:bg-white/[0.06] hover:text-slate-200'
+          ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40'
+          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
         }
       `}
     >
       <Icon
-        className={`w-[18px] h-[18px] flex-shrink-0 transition-colors ${
-          isActive ? 'text-blue-400' : 'text-slate-500'
+        className={`w-4 h-4 flex-shrink-0 transition-colors ${
+          isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-300'
         }`}
-        strokeWidth={isActive ? 2.25 : 1.75}
+        strokeWidth={isActive ? 2.5 : 2}
       />
-      <span className={`text-[13px] font-medium tracking-tight ${isActive ? 'text-white' : ''}`}>
-        {item.label}
-      </span>
+      <div className="min-w-0">
+        <p className={`text-sm font-medium truncate ${isActive ? 'text-white' : ''}`}>
+          {item.label}
+        </p>
+        <p className={`text-[11px] truncate mt-0.5 ${
+          isActive ? 'text-blue-200' : 'text-slate-600 group-hover:text-slate-500'
+        }`}>
+          {item.sublabel}
+        </p>
+      </div>
       {isActive && (
-        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white/60 flex-shrink-0" />
       )}
     </button>
   );
@@ -67,43 +74,36 @@ export default function Sidebar({ currentTab, onTabChange }: SidebarProps) {
   });
 
   const dashboard: NavItem = {
-    id: 'dashboard', label: 'Dashboard', sublabel: 'Panoramica', icon: LayoutDashboard,
+    id: 'dashboard', label: 'Dashboard', sublabel: 'Panoramica generale', icon: LayoutDashboard,
   };
 
   const settings: NavItem = {
-    id: 'settings', label: 'Impostazioni', sublabel: 'Configurazione', icon: Settings,
+    id: 'settings', label: 'Impostazioni', sublabel: 'Utenti e configurazione', icon: Settings,
   };
 
   return (
-    <aside className="fixed inset-y-0 left-0 w-64 bg-[#1C1C1E] flex flex-col z-20 border-r border-white/[0.06]">
+    <aside className="fixed inset-y-0 left-0 w-64 bg-slate-900 flex flex-col z-20 border-r border-slate-800">
       {/* Logo */}
-      <div className="px-5 py-5 border-b border-white/[0.06]">
+      <div className="px-6 py-6 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-blue-500 flex items-center justify-center flex-shrink-0">
-            <Activity className="w-4 h-4 text-white" strokeWidth={2.25} />
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <Activity className="w-4 h-4 text-white" strokeWidth={2.5} />
           </div>
           <div>
-            <p className="text-white font-semibold text-[14px] leading-tight tracking-tight">
+            <p className="text-white font-semibold text-sm leading-tight tracking-wide">
               MarginView
             </p>
-            <p className="text-slate-500 text-[11px] leading-tight mt-0.5">Controllo di gestione</p>
           </div>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        <NavButton
-          item={dashboard}
-          isActive={currentTab === 'dashboard'}
-          onClick={() => onTabChange('dashboard')}
-        />
+      <nav className="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
+        <p className="px-3 mb-3 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
+          Moduli
+        </p>
 
-        <div className="pt-4 pb-1.5 px-3">
-          <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
-            Moduli
-          </p>
-        </div>
+        <NavButton item={dashboard} isActive={currentTab === 'dashboard'} onClick={() => onTabChange('dashboard')} />
 
         {visibleModules.map(item => (
           <NavButton
@@ -116,19 +116,14 @@ export default function Sidebar({ currentTab, onTabChange }: SidebarProps) {
 
         {user?.role === 'admin' && (
           <>
-            <div className="pt-4 pb-1.5 px-3">
-              <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
-                Amministrazione
-              </p>
-            </div>
-            <NavButton
-              item={settings}
-              isActive={currentTab === 'settings'}
-              onClick={() => onTabChange('settings')}
-            />
+            <p className="px-3 pt-5 mb-3 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">
+              Amministrazione
+            </p>
+            <NavButton item={settings} isActive={currentTab === 'settings'} onClick={() => onTabChange('settings')} />
           </>
         )}
       </nav>
+
     </aside>
   );
 }

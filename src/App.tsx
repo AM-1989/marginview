@@ -46,7 +46,7 @@ function AppShell() {
   if (!user) return <Login />;
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7] font-sans">
+    <div className="min-h-screen bg-slate-50 font-sans">
       <Sidebar currentTab={currentTab} onTabChange={setCurrentTab} />
 
       <div className="ml-64 flex flex-col min-h-screen">
