@@ -124,6 +124,7 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
                       type="category" dataKey="name"
                       tick={<MixYTick />}
                       axisLine={false} tickLine={false} width={118}
+                      interval={0}
                     />
                     <Tooltip
                       formatter={(v: unknown) => [
@@ -195,11 +196,14 @@ function WfTooltipEur({ active, payload }: { active?: boolean; payload?: { paylo
 
 type WfLabelProps = { x?: number | string; y?: number | string; width?: number | string; index?: number };
 
+// p1Base: if provided, bar labels are formatted as % of that base value
 function makeWfLabel(
   data: WaterfallPoint[],
   type: 'total' | 'green' | 'red',
   yFmt: (v: number) => string,
+  p1Base?: number,
 ) {
+  const pct = (v: number) => `${v >= 0 ? '+' : ''}${(v / (p1Base ?? 1) * 100).toFixed(1)}%`;
   return function WfBarLabel({ x, y, width, index }: WfLabelProps) {
     const pt = data[index ?? 0];
     if (!pt) return null;
@@ -212,13 +216,13 @@ function makeWfLabel(
     let label: string;
     let fill: string;
     if (type === 'total') {
-      label = yFmt(pt.rawValue);
+      label = p1Base ? (pt.name === 'P1' ? '100%' : pct(pt.rawValue - p1Base)) : yFmt(pt.rawValue);
       fill  = '#2563eb';
     } else if (type === 'green') {
-      label = `+${yFmt(pt.rawValue)}`;
+      label = p1Base ? pct(pt.rawValue) : `+${yFmt(pt.rawValue)}`;
       fill  = '#059669';
     } else {
-      label = `-${yFmt(Math.abs(pt.rawValue))}`;
+      label = p1Base ? pct(pt.rawValue) : `-${yFmt(Math.abs(pt.rawValue))}`;
       fill  = '#ef4444';
     }
     return (
@@ -230,18 +234,20 @@ function makeWfLabel(
 }
 
 function WaterfallChart({
-  data, title, subtitle, yFmt, tooltip,
+  data, title, subtitle, yFmt, tooltip, barLabelAsPct,
 }: {
   data: WaterfallPoint[];
   title: string;
   subtitle: string;
   yFmt: (v: number) => string;
   tooltip: React.ComponentType<{ active?: boolean; payload?: { payload?: WaterfallPoint }[] }>;
+  barLabelAsPct?: boolean;
 }) {
   const TooltipComp = tooltip;
-  const LabelTotal = makeWfLabel(data, 'total', yFmt);
-  const LabelGreen = makeWfLabel(data, 'green', yFmt);
-  const LabelRed   = makeWfLabel(data, 'red',   yFmt);
+  const p1Base = barLabelAsPct ? data.find(d => d.name === 'P1')?.rawValue : undefined;
+  const LabelTotal = makeWfLabel(data, 'total', yFmt, p1Base);
+  const LabelGreen = makeWfLabel(data, 'green', yFmt, p1Base);
+  const LabelRed   = makeWfLabel(data, 'red',   yFmt, p1Base);
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="mb-4">
@@ -984,6 +990,7 @@ export default function VarianceAnalysis() {
                 subtitle="Contributo per categoria"
                 yFmt={v => `€${((v as number) / 1000).toFixed(0)}k`}
                 tooltip={WfTooltipEur}
+                barLabelAsPct
               />
               <WaterfallChart
                 data={effects.waterfallMargin}
@@ -991,6 +998,7 @@ export default function VarianceAnalysis() {
                 subtitle="Contributo per categoria"
                 yFmt={v => `€${((v as number) / 1000).toFixed(0)}k`}
                 tooltip={WfTooltipEur}
+                barLabelAsPct
               />
               <WaterfallChart
                 data={effects.waterfallMarginPct}
