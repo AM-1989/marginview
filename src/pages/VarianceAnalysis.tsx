@@ -76,6 +76,18 @@ const MIX_DIMS: { key: 'brand' | 'categoria' | 'sottocategoria' | 'formato'; lab
   { key: 'formato',        label: 'Formato' },
 ];
 
+// Custom Y-axis tick: truncates long names to avoid wrapping
+function MixYTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) {
+  const text = payload?.value ?? '';
+  const maxLen = 17;
+  const display = text.length > maxLen ? text.slice(0, maxLen - 1) + '…' : text;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={-6} y={0} dy={3} textAnchor="end" fontSize={9} fill="#64748b">{display}</text>
+    </g>
+  );
+}
+
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -88,19 +100,19 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
           </span>
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
         {MIX_DIMS.map(({ key, label }) => {
           const data = computeMixByDim(effects, key);
           return (
             <div key={key}>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{label}</p>
               {data.length === 0 ? (
-                <div className="flex items-center justify-center h-36 text-xs text-slate-300 border border-dashed border-slate-200 rounded-xl">
+                <div className="flex items-center justify-center h-28 text-xs text-slate-300 border border-dashed border-slate-200 rounded-xl">
                   Nessun dato disponibile
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={data.length * 26 + 10}>
-                  <BarChart data={data} layout="vertical" margin={{ top: 0, right: 52, left: 80, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={data.length * 28 + 16}>
+                  <BarChart data={data} layout="vertical" margin={{ top: 2, right: 58, left: 4, bottom: 2 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis
                       type="number"
@@ -110,8 +122,8 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
                     />
                     <YAxis
                       type="category" dataKey="name"
-                      tick={{ fontSize: 9, fill: '#64748b' }}
-                      axisLine={false} tickLine={false} width={76}
+                      tick={<MixYTick />}
+                      axisLine={false} tickLine={false} width={118}
                     />
                     <Tooltip
                       formatter={(v: unknown) => [
@@ -128,7 +140,7 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
                         position="right"
                         content={({ x, y, width, height, value }: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown }) => {
                           const v = Number(value);
-                          const cx = +(x ?? 0) + +(width ?? 0) + 3;
+                          const cx = +(x ?? 0) + +(width ?? 0) + 4;
                           const cy = +(y ?? 0) + +(height ?? 0) / 2 + 3.5;
                           return (
                             <text x={cx} y={cy} fontSize={8} fill={v >= 0 ? '#059669' : '#ef4444'} fontWeight={600}>
@@ -918,6 +930,49 @@ export default function VarianceAnalysis() {
               </div>
             </div>
 
+            {/* ── 4 Effetti classici + Varianza Totale ──────────────────────── */}
+            {(() => {
+              const delta = effects.marginPctP2 - effects.marginPctP1;
+              const fmtEff = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}`;
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                    {[
+                      { label: 'Effetto Volume', v: effects.effVolume },
+                      { label: 'Effetto Mix',    v: effects.effMix },
+                      { label: 'Effetto Prezzo', v: effects.effPrezzo },
+                      { label: 'Effetto Costo',  v: effects.effCosto },
+                    ].map(({ label, v }) => (
+                      <div key={label} className={`rounded-2xl p-5 border shadow-sm ${v > 0 ? 'bg-emerald-50 border-emerald-200' : v < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">{label}</p>
+                        <p className={`text-xl font-bold tabular-nums ${clrPp(v)}`}>{fmtPp(v)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={`rounded-2xl p-5 border shadow-sm ${delta > 0 ? 'bg-emerald-50 border-emerald-200' : delta < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Varianza Totale</p>
+                        <p className={`text-3xl font-bold tabular-nums ${clrPp(delta)}`}>{fmtPp(delta)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500 font-mono">
+                          = Vol ({fmtEff(effects.effVolume)})
+                          {' '}+ Mix ({fmtEff(effects.effMix)})
+                          {' '}+ Prezzo ({fmtEff(effects.effPrezzo)})
+                          {' '}+ Costo ({fmtEff(effects.effCosto)}) pp
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          M% P1 {fmtPct(effects.marginPctP1 * 100)} → M% P2 {fmtPct(effects.marginPctP2 * 100)}
+                          {effects.isBalanced ? ' — quadratura ✓' : ` — sbilancio ${(effects.quadratureDiff * 100).toFixed(4)} pp ⚠`}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
             <MixEffectBreakdown effects={effects} />
 
@@ -993,47 +1048,6 @@ export default function VarianceAnalysis() {
                     <span>Quadratura verificata — la somma degli effetti coincide con ΔM% entro tolleranza (0.1 pp)</span>
                   </div>
                 )}
-
-                {/* Effects summary */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Effetto Volume', v: effects.effVolume },
-                    { label: 'Effetto Mix',    v: effects.effMix },
-                    { label: 'Effetto Prezzo', v: effects.effPrezzo },
-                    { label: 'Effetto Costo',  v: effects.effCosto },
-                  ].map(({ label, v }) => (
-                    <div key={label} className={`rounded-xl p-4 border ${v > 0 ? 'bg-emerald-50 border-emerald-200' : v < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1">{label}</p>
-                      <p className={`text-xl font-bold tabular-nums ${clrPp(v)}`}>{fmtPp(v)}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Varianza totale — riepilogo con formula di quadratura */}
-                {(() => {
-                  const delta = effects.marginPctP2 - effects.marginPctP1;
-                  const fmtEff = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}`;
-                  return (
-                    <div className={`rounded-xl p-5 border ${delta > 0 ? 'bg-emerald-50 border-emerald-200' : delta < 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Varianza Totale</p>
-                      <p className={`text-3xl font-bold tabular-nums mb-3 ${clrPp(delta)}`}>
-                        {fmtPp(delta)}
-                      </p>
-                      <p className="text-xs text-slate-500 font-mono leading-relaxed">
-                        = Volume ({fmtEff(effects.effVolume)})
-                        {' '}+ Mix ({fmtEff(effects.effMix)})
-                        {' '}+ Prezzo ({fmtEff(effects.effPrezzo)})
-                        {' '}+ Costo ({fmtEff(effects.effCosto)}) pp
-                      </p>
-                      <p className="text-[10px] text-slate-400 mt-2">
-                        M% P1 {fmtPct(effects.marginPctP1 * 100)} → M% P2 {fmtPct(effects.marginPctP2 * 100)}
-                        {effects.isBalanced
-                          ? ' — quadratura verificata ✓'
-                          : ` — sbilancio ${(effects.quadratureDiff * 100).toFixed(4)} pp ⚠`}
-                      </p>
-                    </div>
-                  );
-                })()}
 
               </div>
             </div>
