@@ -30,31 +30,31 @@ const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500
 const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && isFinite(v) ? fmt(v) : 'N/D';
 
 // ─── Mix effect breakdown by dimension ───────────────────────────────────────
-// Exact additive decomposition: Σ contrib_i = effMix (proven below).
+// Each dimension (Brand, Categoria, etc.) is an INDEPENDENT decomposition of
+// effMix. Every chart sums to exactly effMix (= 100%) on its own.
+// The 4 charts are NOT additive across each other — they are 4 different
+// "lenses" on the same total effect.
 //
-// effMix = marginPctM - marginPctP1
-//        = Σ[m1_i × revM_i / totalRevM] - Σ[m1_i × revP1_i / totalRevP1]
-//        = Σ[ m1_i × (revM_i/totalRevM - revP1_i/totalRevP1) ]
+// Exact proof: Σ_all_i [ m1_i × (shareM_i − shareP1_i) ] = effMix
+// where shareM_i  = q2_i × p1Eff_i / totalRevM  (P2 qty at P1 prices share)
+//       shareP1_i = q1_i × p1Eff_i / totalRevP1  (= rev1_i / totalRev1)
 //
-// Using quantity shares (mix2-mix1)×m1 is WRONG when products have different prices
-// because it mixes units that are not revenue-comparable. Revenue weights are required.
+// Guarantees for 100% coverage:
+// 1. No lines skipped — products with empty dim field go to "N/D"
+// 2. No items cut off — groups beyond display limit are aggregated as "Altri"
+//    so that Σ visible bars = effMix always.
 
-// Exact additive decomposition of effMix by dimension.
-// Σ_i contrib_i = effMix (revenue-weighted, proven):
-//   Σ[m1_i × (revM_i/totalRevM - revP1_i/totalRevP1)] = marginPctM - marginPctP1 = effMix
-// Quantity-weighted formula (mix2-mix1)×m1 is WRONG for portfolios with different unit prices.
 function computeMixByDim(
   effects: EffectsResult,
   dim: 'brand' | 'categoria' | 'sottocategoria' | 'formato',
-  maxItems = 7,
-): { name: string; value: number }[] {
+  maxVisible = 10,
+): { name: string; value: number; isResidual?: boolean }[] {
   const { lines, totalRevM, totalRev1: totalRevP1 } = effects;
   if (totalRevM === 0 || totalRevP1 === 0) return [];
 
   const map = new Map<string, number>();
   for (const l of lines) {
-    const key = (l[dim] as string) || '';
-    if (!key) continue;
+    const key = (l[dim] as string).trim() || 'N/D'; // never skip a line
     const m1 = l.price1Effective > 0
       ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective
       : 0;
@@ -63,10 +63,21 @@ function computeMixByDim(
     const contrib = m1 * (shareM - shareP1) * 100; // pp
     map.set(key, (map.get(key) ?? 0) + contrib);
   }
-  return [...map.entries()]
-    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .slice(0, maxItems)
-    .map(([name, value]) => ({ name, value: +value.toFixed(3) }));
+
+  const sorted = [...map.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const top  = sorted.slice(0, maxVisible);
+  const rest = sorted.slice(maxVisible);
+
+  const result: { name: string; value: number; isResidual?: boolean }[] =
+    top.map(([name, value]) => ({ name, value: +value.toFixed(3) }));
+
+  // Aggregate remaining groups so that Σ bars = effMix exactly
+  if (rest.length > 0) {
+    const residual = rest.reduce((s, [, v]) => s + v, 0);
+    result.push({ name: `Altri (${rest.length})`, value: +residual.toFixed(3), isResidual: true });
+  }
+
+  return result;
 }
 
 const MIX_DIMS: { key: 'brand' | 'categoria' | 'sottocategoria' | 'formato'; label: string }[] = [
@@ -89,23 +100,35 @@ function MixYTick({ x, y, payload }: { x?: number; y?: number; payload?: { value
 }
 
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
+  const effMixPp = effects.effMix * 100;
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-      <div className="mb-5">
+      <div className="mb-1">
         <h4 className="text-sm font-semibold text-slate-700">Analisi Effetto Mix per Dimensione</h4>
         <p className="text-xs text-slate-400 mt-0.5">
-          Contributo di ciascun gruppo all'effetto mix totale — Effetto Mix complessivo:{' '}
+          Ogni dimensione è una vista <strong className="text-slate-500">indipendente</strong> e completa dell'effetto mix —
+          la somma delle barre di ciascun grafico = effMix totale{' '}
           <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
             {fmtPp(effects.effMix)}
           </span>
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6 mt-5">
         {MIX_DIMS.map(({ key, label }) => {
           const data = computeMixByDim(effects, key);
+          // Verify: sum of all bars should equal effMixPp exactly
+          const barSum = data.reduce((s, d) => s + d.value, 0);
+          const diffPp = Math.abs(barSum - effMixPp);
+          const isExact = diffPp < 0.01;
+
           return (
             <div key={key}>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{label}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
+                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${isExact ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                  {isExact ? '∑ = 100% ✓' : `∑ diff ${diffPp.toFixed(2)}pp ⚠`}
+                </span>
+              </div>
               {data.length === 0 ? (
                 <div className="flex items-center justify-center h-28 text-xs text-slate-300 border border-dashed border-slate-200 rounded-xl">
                   Nessun dato disponibile
@@ -134,17 +157,22 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
                     />
                     <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false} maxBarSize={14}>
                       {data.map((d, i) => (
-                        <Cell key={i} fill={d.value >= 0 ? '#10b981' : '#f87171'} />
+                        <Cell
+                          key={i}
+                          fill={d.isResidual ? '#94a3b8' : d.value >= 0 ? '#10b981' : '#f87171'}
+                          opacity={d.isResidual ? 0.7 : 1}
+                        />
                       ))}
                       <LabelList
                         dataKey="value"
                         position="right"
-                        content={({ x, y, width, height, value }: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown }) => {
+                        content={({ x, y, width, height, value, index }: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown; index?: number }) => {
                           const v = Number(value);
+                          const isRes = data[index as number]?.isResidual;
                           const cx = +(x ?? 0) + +(width ?? 0) + 4;
                           const cy = +(y ?? 0) + +(height ?? 0) / 2 + 3.5;
                           return (
-                            <text x={cx} y={cy} fontSize={8} fill={v >= 0 ? '#059669' : '#ef4444'} fontWeight={600}>
+                            <text x={cx} y={cy} fontSize={8} fill={isRes ? '#94a3b8' : v >= 0 ? '#059669' : '#ef4444'} fontWeight={600}>
                               {`${v >= 0 ? '+' : ''}${v.toFixed(2)}pp`}
                             </text>
                           );
