@@ -176,6 +176,9 @@ export interface EffectsResult {
   effMix: number;
   effPrezzo: number;
   effCosto: number;
+  // Intermediate scenario revenues (for exact additive mix decomposition)
+  // totalRevM = Σ(q2_i × price1Effective_i): P2 quantities valued at P1 prices
+  totalRevM: number;
   // Quadrature
   expectedP2: number;
   quadratureDiff: number;
@@ -692,6 +695,7 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   marginPctV: number;
   marginPctM: number;
   marginPctP: number;
+  totalRevM: number;
 } {
   const { marginPctP1, marginPctP2, totalRev2, Q1, Q2 } = kpis;
 
@@ -728,7 +732,7 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   // Scenario C = actual P2
   const effCosto = marginPctP2 - marginPctP;
 
-  return { effVolume, effMix, effPrezzo, effCosto, marginPctV, marginPctM, marginPctP };
+  return { effVolume, effMix, effPrezzo, effCosto, marginPctV, marginPctM, marginPctP, totalRevM: revM };
 }
 
 // ─── validateVarianceBridge ───────────────────────────────────────────────────
@@ -1030,6 +1034,7 @@ export function computeVarianceEffects(
     marginPctP1: kpis.marginPctP1, marginPctP2: kpis.marginPctP2,
     effVolume: eff.effVolume, effMix: eff.effMix,
     effPrezzo: eff.effPrezzo, effCosto: eff.effCosto,
+    totalRevM: eff.totalRevM,
     expectedP2: quad.expectedP2,
     quadratureDiff: quad.quadratureDiff,
     isBalanced: quad.isBalanced,

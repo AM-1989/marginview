@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, LabelList, Cell,
 } from 'recharts';
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
@@ -28,6 +28,126 @@ const fmtPp  = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toF
 const fmtDiff = (v: number) => `${v >= 0 ? '+' : ''}${fmtEur.format(v)}`;
 const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : 'text-slate-500';
 const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && isFinite(v) ? fmt(v) : 'N/D';
+
+// ─── Mix effect breakdown by dimension ───────────────────────────────────────
+// Exact additive decomposition: Σ contrib_i = effMix (proven below).
+//
+// effMix = marginPctM - marginPctP1
+//        = Σ[m1_i × revM_i / totalRevM] - Σ[m1_i × revP1_i / totalRevP1]
+//        = Σ[ m1_i × (revM_i/totalRevM - revP1_i/totalRevP1) ]
+//
+// Using quantity shares (mix2-mix1)×m1 is WRONG when products have different prices
+// because it mixes units that are not revenue-comparable. Revenue weights are required.
+
+// Exact additive decomposition of effMix by dimension.
+// Σ_i contrib_i = effMix (revenue-weighted, proven):
+//   Σ[m1_i × (revM_i/totalRevM - revP1_i/totalRevP1)] = marginPctM - marginPctP1 = effMix
+// Quantity-weighted formula (mix2-mix1)×m1 is WRONG for portfolios with different unit prices.
+function computeMixByDim(
+  effects: EffectsResult,
+  dim: 'brand' | 'categoria' | 'sottocategoria' | 'formato',
+  maxItems = 7,
+): { name: string; value: number }[] {
+  const { lines, totalRevM, totalRev1: totalRevP1 } = effects;
+  if (totalRevM === 0 || totalRevP1 === 0) return [];
+
+  const map = new Map<string, number>();
+  for (const l of lines) {
+    const key = (l[dim] as string) || '';
+    if (!key) continue;
+    const m1 = l.price1Effective > 0
+      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective
+      : 0;
+    const shareM  = (l.q2 * l.price1Effective) / totalRevM;
+    const shareP1 = (l.q1 * l.price1Effective) / totalRevP1;
+    const contrib = m1 * (shareM - shareP1) * 100; // pp
+    map.set(key, (map.get(key) ?? 0) + contrib);
+  }
+  return [...map.entries()]
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, maxItems)
+    .map(([name, value]) => ({ name, value: +value.toFixed(3) }));
+}
+
+const MIX_DIMS: { key: 'brand' | 'categoria' | 'sottocategoria' | 'formato'; label: string }[] = [
+  { key: 'brand',          label: 'Brand' },
+  { key: 'categoria',      label: 'Categoria' },
+  { key: 'sottocategoria', label: 'Sottocategoria' },
+  { key: 'formato',        label: 'Formato' },
+];
+
+function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+      <div className="mb-5">
+        <h4 className="text-sm font-semibold text-slate-700">Analisi Effetto Mix per Dimensione</h4>
+        <p className="text-xs text-slate-400 mt-0.5">
+          Contributo di ciascun gruppo all'effetto mix totale — Effetto Mix complessivo:{' '}
+          <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
+            {fmtPp(effects.effMix)}
+          </span>
+        </p>
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+        {MIX_DIMS.map(({ key, label }) => {
+          const data = computeMixByDim(effects, key);
+          return (
+            <div key={key}>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">{label}</p>
+              {data.length === 0 ? (
+                <div className="flex items-center justify-center h-36 text-xs text-slate-300 border border-dashed border-slate-200 rounded-xl">
+                  Nessun dato disponibile
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={data.length * 26 + 10}>
+                  <BarChart data={data} layout="vertical" margin={{ top: 0, right: 52, left: 80, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 8, fill: '#94a3b8' }}
+                      axisLine={false} tickLine={false}
+                      tickFormatter={v => `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}`}
+                    />
+                    <YAxis
+                      type="category" dataKey="name"
+                      tick={{ fontSize: 9, fill: '#64748b' }}
+                      axisLine={false} tickLine={false} width={76}
+                    />
+                    <Tooltip
+                      formatter={(v: unknown) => [
+                        `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)} pp`, 'Effetto Mix',
+                      ]}
+                      contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                    />
+                    <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false} maxBarSize={14}>
+                      {data.map((d, i) => (
+                        <Cell key={i} fill={d.value >= 0 ? '#10b981' : '#f87171'} />
+                      ))}
+                      <LabelList
+                        dataKey="value"
+                        position="right"
+                        content={({ x, y, width, height, value }: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown }) => {
+                          const v = Number(value);
+                          const cx = +(x ?? 0) + +(width ?? 0) + 3;
+                          const cy = +(y ?? 0) + +(height ?? 0) / 2 + 3.5;
+                          return (
+                            <text x={cx} y={cy} fontSize={8} fill={v >= 0 ? '#059669' : '#ef4444'} fontWeight={600}>
+                              {`${v >= 0 ? '+' : ''}${v.toFixed(2)}pp`}
+                            </text>
+                          );
+                        }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ─── Waterfall tooltip ────────────────────────────────────────────────────────
 
@@ -61,6 +181,42 @@ function WfTooltipEur({ active, payload }: { active?: boolean; payload?: { paylo
 
 // ─── Waterfall chart ──────────────────────────────────────────────────────────
 
+type WfLabelProps = { x?: number | string; y?: number | string; width?: number | string; index?: number };
+
+function makeWfLabel(
+  data: WaterfallPoint[],
+  type: 'total' | 'green' | 'red',
+  yFmt: (v: number) => string,
+) {
+  return function WfBarLabel({ x, y, width, index }: WfLabelProps) {
+    const pt = data[index ?? 0];
+    if (!pt) return null;
+    if (type === 'total' && !pt.isTotal) return null;
+    if (type === 'green' && pt.green === 0) return null;
+    if (type === 'red'   && pt.red   === 0) return null;
+
+    const cx = +(x ?? 0) + +(width ?? 0) / 2;
+    const cy = +(y ?? 0) - 5;
+    let label: string;
+    let fill: string;
+    if (type === 'total') {
+      label = yFmt(pt.rawValue);
+      fill  = '#2563eb';
+    } else if (type === 'green') {
+      label = `+${yFmt(pt.rawValue)}`;
+      fill  = '#059669';
+    } else {
+      label = `-${yFmt(Math.abs(pt.rawValue))}`;
+      fill  = '#ef4444';
+    }
+    return (
+      <text x={cx} y={cy} textAnchor="middle" fontSize={9} fill={fill} fontWeight={600}>
+        {label}
+      </text>
+    );
+  };
+}
+
 function WaterfallChart({
   data, title, subtitle, yFmt, tooltip,
 }: {
@@ -71,6 +227,9 @@ function WaterfallChart({
   tooltip: React.ComponentType<{ active?: boolean; payload?: { payload?: WaterfallPoint }[] }>;
 }) {
   const TooltipComp = tooltip;
+  const LabelTotal = makeWfLabel(data, 'total', yFmt);
+  const LabelGreen = makeWfLabel(data, 'green', yFmt);
+  const LabelRed   = makeWfLabel(data, 'red',   yFmt);
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="mb-4">
@@ -89,16 +248,22 @@ function WaterfallChart({
           </span>
         ))}
       </div>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: 10 }} barCategoryGap="20%">
+      <ResponsiveContainer width="100%" height={250}>
+        <BarChart data={data} margin={{ top: 22, right: 10, bottom: 5, left: 10 }} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
           <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={52} />
           <Tooltip content={(props) => <TooltipComp active={props.active} payload={props.payload as unknown as { payload?: WaterfallPoint }[]} />} cursor={{ fill: '#f8fafc' }} />
           <Bar dataKey="spacer" stackId="wf" fill="transparent" isAnimationActive={false} />
-          <Bar dataKey="total"  stackId="wf" fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-          <Bar dataKey="green"  stackId="wf" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
-          <Bar dataKey="red"    stackId="wf" fill="#f87171" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          <Bar dataKey="total"  stackId="wf" fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            <LabelList content={LabelTotal} />
+          </Bar>
+          <Bar dataKey="green"  stackId="wf" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            <LabelList content={LabelGreen} />
+          </Bar>
+          <Bar dataKey="red"    stackId="wf" fill="#f87171" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            <LabelList content={LabelRed} />
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -752,6 +917,9 @@ export default function VarianceAnalysis() {
                 </div>
               </div>
             </div>
+
+            {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
+            <MixEffectBreakdown effects={effects} />
 
             {/* ── Waterfall Charts ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
