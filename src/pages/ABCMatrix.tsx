@@ -5,7 +5,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 import {
-  Upload, Download, FileDown, RotateCcw, Package, TrendingUp, ChartColumn,
+  Upload, FileDown, RotateCcw, Package, TrendingUp, ChartColumn,
   Target, Activity, Percent, Star, TriangleAlert, Users, Heart,
   Zap, Sparkles, CheckCircle2, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
@@ -407,20 +407,6 @@ export default function ABCMatrix() {
     finally { setExportingPdf(false); }
   }
 
-  function handleExport() {
-    const data = products.map(p => ({
-      Codice: p.id, Descrizione: p.name, Categoria: p.category,
-      Fatturato: p.revenue, Costo: p.cost, Profitto: p.profit,
-      'Margine%': +p.marginPct.toFixed(2), 'Cum.Rev%': +p.cumRevenuePct.toFixed(2),
-      'Rating Fatt.': p.ratingRevenue, 'Rating Marg.': p.ratingMargin,
-      Segmento: p.segment, 'Nome Segmento': SEGMENTS[p.segment].label,
-    }));
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'ABC Matrix');
-    XLSX.writeFile(wb, 'abc-matrix.xlsx');
-  }
-
   // ── Upload screen ─────────────────────────────────────────────────────────
   if (!rows) {
     return (
@@ -481,12 +467,6 @@ export default function ABCMatrix() {
               ref={mainInputRef}
               onChange={e => { const f = e.target.files?.[0]; if (f) handleMainFile(f); e.target.value = ''; }} />
           </label>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
-          >
-            <Download className="w-4 h-4" /> Esporta Excel
-          </button>
           <button
             onClick={handleExportPDF}
             disabled={exportingPdf}

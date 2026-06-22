@@ -71,7 +71,7 @@ export interface AbcSummary {
 export interface BalanceInputYear {
   anno: number;
 
-  // Income Statement
+  // Conto Economico
   ricavi: number;
   costoDelVenduto: number;
   costiOperativi: number;
@@ -79,18 +79,20 @@ export interface BalanceInputYear {
   oneriFinanziari: number;
   imposte: number;
 
-  // Balance Sheet – Assets
-  attivitaCorrente: number;
-  rimanenze: number;
-  creditiClienti: number;
+  // Stato Patrimoniale
+  creditiClienti: number;       // Crediti commerciali
+  magazzino: number;            // Magazzino / Rimanenze
+  debitiFornitori: number;      // Debiti commerciali
   liquidita: number;
-  attivitaNonCorrente: number;
-
-  // Balance Sheet – Liabilities & Equity
+  debitiFinanziariBT: number;   // Debiti finanziari a breve termine
+  debitiFinanziariLT: number;   // Debiti finanziari a lungo termine
   patrimoniNetto: number;
-  debitiFinanziari: number;
-  debitiFornitori: number;
-  altrePassivitaCorrente: number;
+  totaleAttivo: number;         // Totale attivo (input diretto)
+  attivoCorriente: number;      // Attivo corrente
+  passivoCorriente: number;     // Passivo corrente (input diretto)
+
+  // Cash Flow
+  capex: number;                // Investimenti (CAPEX)
 }
 
 export interface BalanceKPI {
@@ -105,19 +107,24 @@ export interface BalanceKPI {
   utileNettoPerc: number;
 
   // Returns
-  roe: number; // Utile / Patrimonio Netto
-  roa: number; // EBIT / Totale Attivo
-  ros: number; // EBIT / Ricavi
+  roe: number;  // Utile Netto / Patrimonio Netto
+  roi: number;  // EBIT / (Patrimonio Netto + Debiti Finanziari totali)
 
-  // Liquidity
-  currentRatio: number;   // Attività Corrente / Passività Corrente
-  quickRatio: number;     // (Attività Corrente - Rimanenze) / Passività Corrente
-  cashRatio: number;      // Liquidità / Passività Corrente
+  // Liquidity ratios
+  currentRatio: number;  // Attivo Corrente / Passivo Corrente
+  quickRatio: number;    // (Attivo Corrente - Magazzino) / Passivo Corrente
+  cashRatio: number;     // Liquidità / Passivo Corrente
 
-  // Leverage
+  // Leverage / PFN
+  pfn: number;           // Posizione Finanziaria Netta = Deb.Fin.BT + LT - Liquidità
+  pfnEbitda: number;     // PFN / EBITDA
   debtToEquity: number;
-  netDebt: number;
-  netDebtEbitda: number;
+
+  // Working capital cycles (days)
+  dso: number;  // Days Sales Outstanding
+  dio: number;  // Days Inventory Outstanding
+  dpo: number;  // Days Payable Outstanding
+  ccc: number;  // Cash Conversion Cycle = DSO + DIO - DPO
 }
 
 export interface BalanceData {

@@ -241,17 +241,17 @@ function EffectsTableRow({
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
           {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
         </td>
-        {/* Eff. Prezzo — N/D per gruppi presenti in un solo periodo */}
+        {/* Eff. Prezzo — 0.00 pp per gruppi presenti in un solo periodo */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-300'}`}>
-          {isPureOneSide ? '—' : group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
+          {isPureOneSide ? fmtPp(0) : group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
         </td>
         {/* Eff. Costo */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effCosto !== null ? clrPp(group.effCosto) : 'text-slate-300'}`}>
-          {isPureOneSide ? '—' : group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
+          {isPureOneSide ? fmtPp(0) : group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
         </td>
         {/* Eff. P+C */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${effPC !== null ? clrPp(effPC) : 'text-slate-300'}`}>
-          {effPC !== null ? fmtPp(effPC) : '—'}
+          {effPC !== null ? fmtPp(effPC) : isPureOneSide ? fmtPp(0) : '—'}
         </td>
         {/* M% P2 */}
         <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
