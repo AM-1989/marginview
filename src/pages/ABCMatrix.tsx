@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import {
   Upload, FileDown, RotateCcw, Package, TrendingUp, ChartColumn,
-  Target, Activity, Percent, Star, TriangleAlert, Users, Heart,
+  Target, Activity, Star, TriangleAlert, Users, Heart,
   Zap, Sparkles, CheckCircle2, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
   Minus, Eye, Search, AlertCircle, GitCompare, Layers,
@@ -42,12 +42,6 @@ const SEG_STYLE: Record<SegmentKey, { bg: string; text: string; border: string; 
   CC: { bg: 'bg-red-50/40',   text: 'text-red-600',     border: 'border-red-100',     badgeBg: 'bg-red-400',     badgeText: 'text-white', leftBorder: 'border-l-red-400'     },
 };
 
-const TREEMAP_COLORS: Record<SegmentKey, string> = {
-  AA: '#10b981', AB: '#f59e0b', AC: '#ef4444',
-  BA: '#34d399', BB: '#fbbf24', BC: '#f87171',
-  CA: '#6ee7b7', CB: '#fcd34d', CC: '#fca5a5',
-};
-
 const DOT_COLOR: Record<SegmentKey, string> = {
   AA: '#10b981', AB: '#f59e0b', AC: '#ef4444',
   BA: '#34d399', BB: '#fbbf24', BC: '#f87171',
@@ -76,35 +70,6 @@ async function readExcel(file: File): Promise<Record<string, unknown>[]> {
     reader.onerror = reject;
     reader.readAsBinaryString(file);
   });
-}
-
-// ── Treemap layout ────────────────────────────────────────────────────────────
-interface TRect { key: SegmentKey; revenue: number; x: number; y: number; w: number; h: number; }
-
-function squarify(
-  items: { key: SegmentKey; revenue: number }[],
-  x: number, y: number, w: number, h: number, total: number,
-): TRect[] {
-  if (!items.length) return [];
-  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
-  let cum = 0;
-  let split = Math.ceil(items.length / 2);
-  const half = total / 2;
-  for (let i = 0; i < items.length; i++) {
-    cum += items[i].revenue;
-    if (cum >= half) { split = i + 1; break; }
-  }
-  const left  = items.slice(0, split);
-  const right = items.slice(split);
-  const lTot  = left.reduce((s, i) => s + i.revenue, 0);
-  const rTot  = right.reduce((s, i) => s + i.revenue, 0);
-  const ratio = total > 0 ? lTot / total : 0.5;
-  if (w >= h) {
-    const w1 = w * ratio;
-    return [...squarify(left, x, y, w1, h, lTot), ...squarify(right, x + w1, y, w - w1, h, rTot)];
-  }
-  const h1 = h * ratio;
-  return [...squarify(left, x, y, w, h1, lTot), ...squarify(right, x, y + h1, w, h - h1, rTot)];
 }
 
 // ── ProgressBar ───────────────────────────────────────────────────────────────
@@ -306,16 +271,6 @@ export default function ABCMatrix() {
     if (alertFilter === 'warning')      return alerts.filter(a => a.type === 'warning');
     return alerts.filter(a => a.type === 'opportunity');
   }, [alerts, alertFilter]);
-
-  // ── Treemap data ──────────────────────────────────────────────────────────
-  const treemapRects = useMemo(() => {
-    const items = MATRIX_ORDER.filter(k => matrix[k].revenue > 0)
-      .map(k => ({ key: k, revenue: matrix[k].revenue }))
-      .sort((a, b) => b.revenue - a.revenue);
-    const tot = items.reduce((s, i) => s + i.revenue, 0);
-    if (!tot) return [];
-    return squarify(items, 0, 0, 640, 300, tot);
-  }, [matrix]);
 
   // ── Quadrant data (categories) ────────────────────────────────────────────
   const avgCatRevenue = categories.length ? categories.reduce((s, c) => s + c.revenue, 0) / categories.length : 0;
@@ -525,10 +480,9 @@ export default function ABCMatrix() {
       </div>
 
       {/* ── KPI 6 secondary ───────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { icon: Activity,      label: 'CONCENTRAZIONE (GINI)', value: gini.toFixed(2),           sub: gini < 0.3 ? 'Distribuita' : gini < 0.6 ? 'Media' : 'Molto concentrata', color: gini > 0.6 ? 'text-red-500' : 'text-emerald-600' },
-          { icon: Percent,       label: 'MARGINE MEDIO PESATO',  value: fmtPct(weightedMargin),    sub: `Profitto: ${fmtK(totalProfit)}`,                                         color: 'text-slate-800' },
           { icon: TrendingUp,    label: 'INDICE PARETO',         value: fmtPct(paretoIndex),       sub: "Prodotti che fanno l'80%",                                               color: 'text-blue-600' },
           { icon: Star,          label: 'FATTURATO STAR',        value: fmtPct(starRevenuePct),    sub: 'Cella A-A',                                                              color: 'text-emerald-600' },
           { icon: TriangleAlert, label: 'FATTURATO A RISCHIO',   value: fmtPct(riskRevenuePct),    sub: 'Margine basso (AC/BC/CC)',                                                color: riskRevenuePct > 20 ? 'text-red-500' : 'text-slate-700' },
@@ -706,6 +660,152 @@ export default function ABCMatrix() {
           </p>
         </div>
       </div>
+
+      {/* ── Heatmap Categoria × Cella ABC ────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap Categoria × Cella ABC</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">% del fatturato di ogni categoria che cade in ciascuna cella · top 20 categorie</p>
+          </div>
+          <div className="flex items-center gap-3 text-[11px]">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" /> Sano</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block" /> Medio</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" /> A rischio</span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">Categoria</th>
+                {MATRIX_ORDER.map(k => (
+                  <th key={k} className="px-2 py-2.5 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">
+                    <div>{k.charAt(0)}-{k.charAt(1)}</div>
+                    <div className="font-normal normal-case text-slate-300">{SEGMENTS[k].label}</div>
+                  </th>
+                ))}
+                <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wide">Totale</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {catHeatmap.map(row => (
+                <tr key={row.category} className="hover:bg-slate-50/50">
+                  <td className="px-4 py-2 text-slate-700 font-medium max-w-[180px] truncate">{row.category}</td>
+                  {MATRIX_ORDER.map(k => {
+                    const v = row.cells[k];
+                    const bg = v === 0 ? '' : ['AA', 'BA', 'CA'].includes(k) ? `rgba(16,185,129,${Math.min(1, v / 60)})` : ['AC', 'BC', 'CC'].includes(k) ? `rgba(239,68,68,${Math.min(1, v / 60)})` : `rgba(245,158,11,${Math.min(1, v / 60)})`;
+                    return (
+                      <td key={k} className="px-2 py-2 text-center">
+                        {v > 0 ? (
+                          <span className="inline-flex items-center justify-center min-w-[36px] px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ background: bg, color: v > 30 ? 'white' : '#374151' }}>
+                            {v.toFixed(0)}%
+                          </span>
+                        ) : <span className="text-slate-200">–</span>}
+                      </td>
+                    );
+                  })}
+                  <td className="px-4 py-2 text-right text-slate-500 tabular-nums">{fmtK(row.revenue)}</td>
+                </tr>
+              ))}
+              {catHeatmap.length === 0 && (
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-400">Nessun dato</td></tr>
+              )}
+            </tbody>
+          </table>
+          {categories.length > 20 && (
+            <p className="px-4 py-2 text-[11px] text-slate-400 text-center">+{categories.length - 20} categorie non mostrate</p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Heatmap per Codice Articolo (prodotti only) ───────────────────── */}
+      {activeTab !== 'categorie' && <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap per Codice Articolo</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5">Filtra per cella ABC e ispeziona i singoli articoli raggruppati per categoria.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setExpandedCats(new Set(heatmapFiltered.map(c => c.cat)))} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Espandi tutto</button>
+            <button onClick={() => setExpandedCats(new Set())} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Comprimi</button>
+          </div>
+        </div>
+
+        {/* Filter grid */}
+        <div className="grid grid-cols-3 gap-2">
+          {MATRIX_ORDER.map(key => {
+            const cell = matrix[key];
+            const s = SEG_STYLE[key];
+            const active = heatmapFilter === key;
+            return (
+              <button key={key}
+                onClick={() => setHeatmapFilter(active ? null : key)}
+                disabled={cell.count === 0}
+                className={`border rounded-xl p-3 text-left transition-all ${
+                  cell.count === 0 ? 'opacity-30 cursor-not-allowed border-slate-100' :
+                  active ? 'border-blue-400 ring-2 ring-blue-200' : `${s.bg} ${s.border} hover:shadow-sm`
+                }`}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <SegmentBadge seg={key} />
+                  <span className="text-xs font-semibold text-slate-700 ml-auto tabular-nums">{cell.count}</span>
+                </div>
+                <p className="text-xs font-medium text-slate-700">{SEGMENTS[key].label}</p>
+                <p className="text-[11px] text-slate-500 tabular-nums">{fmtK(cell.revenue)}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Cerca articolo o categoria…"
+            value={heatSearch}
+            onChange={e => setHeatSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 bg-slate-50"
+          />
+        </div>
+
+        {/* Category list */}
+        <div className="space-y-1.5">
+          {heatmapFiltered.map(({ cat, prods, totalRevenue: catTotalRev }) => {
+            const isOpen = expandedCats.has(cat);
+
+            return (
+              <div key={cat} className="border border-slate-200 rounded-lg overflow-hidden">
+                <button
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+                  onClick={() => {
+                    const next = new Set(expandedCats);
+                    if (isOpen) next.delete(cat); else next.add(cat);
+                    setExpandedCats(next);
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-0' : '-rotate-90'}`} />
+                    <span className="text-sm font-medium text-slate-700">{cat}</span>
+                    <span className="text-xs text-slate-400">({prods.length})</span>
+                  </div>
+                  <span className="text-sm font-semibold text-slate-600 tabular-nums">{fmtK(catTotalRev)}</span>
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-4 border-t border-slate-100">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 pt-3">
+                      {prods.map(p => <ProductCard key={p.id} p={p} />)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {heatmapFiltered.length === 0 && (
+            <div className="text-center py-8 text-slate-400 text-sm">Nessun risultato</div>
+          )}
+        </div>
+      </div>}
 
       {/* ── Pareto + Top/Bottom ────────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-6">
@@ -917,182 +1017,11 @@ export default function ABCMatrix() {
         </div>
       </div>
 
-      {/* ── Treemap + Scatter ─────────────────────────────────────────────── */}
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500 mb-4">Treemap Fatturato per Cella</h3>
-          <div className="relative w-full" style={{ height: 300 }}>
-            <svg viewBox="0 0 640 300" className="w-full h-full">
-              {treemapRects.map(r => (
-                <g key={r.key}>
-                  <rect x={r.x + 2} y={r.y + 2} width={r.w - 4} height={r.h - 4} rx={6} fill={TREEMAP_COLORS[r.key]} />
-                  {r.w > 70 && r.h > 40 && (
-                    <>
-                      <text x={r.x + r.w / 2} y={r.y + r.h / 2 - 8} textAnchor="middle" fontSize={Math.min(13, r.w / 8)} fill="white" fontWeight="700" className="pointer-events-none">
-                        {SEGMENTS[r.key].label} {SEGMENTS[r.key].emoji}
-                      </text>
-                      <text x={r.x + r.w / 2} y={r.y + r.h / 2 + 10} textAnchor="middle" fontSize={Math.min(11, r.w / 9)} fill="rgba(255,255,255,0.9)" className="pointer-events-none">
-                        {fmtK(r.revenue)}
-                      </text>
-                    </>
-                  )}
-                </g>
-              ))}
-            </svg>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500 mb-4">Scatter — Fatturato vs Margine</h3>
-          <ScatterMatrix products={products} />
-        </div>
+      {/* ── Scatter — Fatturato vs Margine ────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500 mb-4">Scatter — Fatturato vs Margine</h3>
+        <ScatterMatrix products={products} />
       </div>
-
-      {/* ── Heatmap Categoria × Cella ABC ────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap Categoria × Cella ABC</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">% del fatturato di ogni categoria che cade in ciascuna cella · top 20 categorie</p>
-          </div>
-          <div className="flex items-center gap-3 text-[11px]">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" /> Sano</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 inline-block" /> Medio</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block" /> A rischio</span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-4 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">Categoria</th>
-                {MATRIX_ORDER.map(k => (
-                  <th key={k} className="px-2 py-2.5 text-center text-[10px] font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">
-                    <div>{k.charAt(0)}-{k.charAt(1)}</div>
-                    <div className="font-normal normal-case text-slate-300">{SEGMENTS[k].label}</div>
-                  </th>
-                ))}
-                <th className="px-4 py-2.5 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wide">Totale</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {catHeatmap.map(row => (
-                <tr key={row.category} className="hover:bg-slate-50/50">
-                  <td className="px-4 py-2 text-slate-700 font-medium max-w-[180px] truncate">{row.category}</td>
-                  {MATRIX_ORDER.map(k => {
-                    const v = row.cells[k];
-                    const bg = v === 0 ? '' : ['AA', 'BA', 'CA'].includes(k) ? `rgba(16,185,129,${Math.min(1, v / 60)})` : ['AC', 'BC', 'CC'].includes(k) ? `rgba(239,68,68,${Math.min(1, v / 60)})` : `rgba(245,158,11,${Math.min(1, v / 60)})`;
-                    return (
-                      <td key={k} className="px-2 py-2 text-center">
-                        {v > 0 ? (
-                          <span className="inline-flex items-center justify-center min-w-[36px] px-1.5 py-0.5 rounded text-[11px] font-semibold" style={{ background: bg, color: v > 30 ? 'white' : '#374151' }}>
-                            {v.toFixed(0)}%
-                          </span>
-                        ) : <span className="text-slate-200">–</span>}
-                      </td>
-                    );
-                  })}
-                  <td className="px-4 py-2 text-right text-slate-500 tabular-nums">{fmtK(row.revenue)}</td>
-                </tr>
-              ))}
-              {catHeatmap.length === 0 && (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-400">Nessun dato</td></tr>
-              )}
-            </tbody>
-          </table>
-          {categories.length > 20 && (
-            <p className="px-4 py-2 text-[11px] text-slate-400 text-center">+{categories.length - 20} categorie non mostrate</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Heatmap per Codice Articolo (prodotti only) ───────────────────── */}
-      {activeTab !== 'categorie' && <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap per Codice Articolo</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Filtra per cella ABC e ispeziona i singoli articoli raggruppati per categoria.</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setExpandedCats(new Set(heatmapFiltered.map(c => c.cat)))} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Espandi tutto</button>
-            <button onClick={() => setExpandedCats(new Set())} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Comprimi</button>
-          </div>
-        </div>
-
-        {/* Filter grid */}
-        <div className="grid grid-cols-3 gap-2">
-          {MATRIX_ORDER.map(key => {
-            const cell = matrix[key];
-            const s = SEG_STYLE[key];
-            const active = heatmapFilter === key;
-            return (
-              <button key={key}
-                onClick={() => setHeatmapFilter(active ? null : key)}
-                disabled={cell.count === 0}
-                className={`border rounded-xl p-3 text-left transition-all ${
-                  cell.count === 0 ? 'opacity-30 cursor-not-allowed border-slate-100' :
-                  active ? 'border-blue-400 ring-2 ring-blue-200' : `${s.bg} ${s.border} hover:shadow-sm`
-                }`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <SegmentBadge seg={key} />
-                  <span className="text-xs font-semibold text-slate-700 ml-auto tabular-nums">{cell.count}</span>
-                </div>
-                <p className="text-xs font-medium text-slate-700">{SEGMENTS[key].label}</p>
-                <p className="text-[11px] text-slate-500 tabular-nums">{fmtK(cell.revenue)}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cerca articolo o categoria…"
-            value={heatSearch}
-            onChange={e => setHeatSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 bg-slate-50"
-          />
-        </div>
-
-        {/* Category list */}
-        <div className="space-y-1.5">
-          {heatmapFiltered.map(({ cat, prods, totalRevenue: catTotalRev }) => {
-            const isOpen = expandedCats.has(cat);
-
-            return (
-              <div key={cat} className="border border-slate-200 rounded-lg overflow-hidden">
-                <button
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
-                  onClick={() => {
-                    const next = new Set(expandedCats);
-                    if (isOpen) next.delete(cat); else next.add(cat);
-                    setExpandedCats(next);
-                  }}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-0' : '-rotate-90'}`} />
-                    <span className="text-sm font-medium text-slate-700">{cat}</span>
-                    <span className="text-xs text-slate-400">({prods.length})</span>
-                  </div>
-                  <span className="text-sm font-semibold text-slate-600 tabular-nums">{fmtK(catTotalRev)}</span>
-                </button>
-                {isOpen && (
-                  <div className="px-4 pb-4 border-t border-slate-100">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 pt-3">
-                      {prods.map(p => <ProductCard key={p.id} p={p} />)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {heatmapFiltered.length === 0 && (
-            <div className="text-center py-8 text-slate-400 text-sm">Nessun risultato</div>
-          )}
-        </div>
-      </div>}
 
       {/* ── Quadrante Strategico + Alert Automatici ────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-6">
