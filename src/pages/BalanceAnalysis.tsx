@@ -172,6 +172,9 @@ export default function BalanceAnalysis() {
   const [dashYear, setDashYear]     = useState(DEFAULT_YEARS.length - 1);
   const [userNote, setUserNote]     = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [addingYear, setAddingYear] = useState(false);
+  const [newYearVal, setNewYearVal] = useState('');
+  const newYearRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const kpis: BalanceKPI[] = useMemo(() => years.map(y => calculateBalanceKPIs(y)), [years]);
@@ -188,9 +191,19 @@ export default function BalanceAnalysis() {
     setYears(prev => prev.map((y, i) => i === yearIdx ? { ...y, [field]: value } : y));
   }, []);
 
-  function addYear() {
+  function openAddYear() {
     const last = years[years.length - 1];
-    setYears(prev => [...prev, BLANK_YEAR(last ? last.anno + 1 : CY)]);
+    setNewYearVal(String(last ? last.anno + 1 : CY));
+    setAddingYear(true);
+    setTimeout(() => newYearRef.current?.select(), 50);
+  }
+
+  function confirmAddYear() {
+    const anno = parseInt(newYearVal, 10);
+    if (!anno || anno < 1900 || anno > 2100) return;
+    if (years.some(y => y.anno === anno)) { setAddingYear(false); return; }
+    setYears(prev => [...prev, BLANK_YEAR(anno)].sort((a, b) => a.anno - b.anno));
+    setAddingYear(false);
   }
 
   function removeYear(idx: number) {
@@ -483,12 +496,38 @@ export default function BalanceAnalysis() {
               >
                 <RotateCcw className="w-3.5 h-3.5" /> Reset
               </button>
-              <button
-                onClick={addYear}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" /> Aggiungi anno
-              </button>
+              {addingYear ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    ref={newYearRef}
+                    type="number"
+                    value={newYearVal}
+                    onChange={e => setNewYearVal(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') confirmAddYear(); if (e.key === 'Escape') setAddingYear(false); }}
+                    className="w-24 px-2 py-2 text-sm font-semibold text-slate-800 text-center border border-violet-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    placeholder="Anno"
+                  />
+                  <button
+                    onClick={confirmAddYear}
+                    className="px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+                  >
+                    Aggiungi
+                  </button>
+                  <button
+                    onClick={() => setAddingYear(false)}
+                    className="px-2 py-2 text-sm font-medium rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-colors"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={openAddYear}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" /> Aggiungi anno
+                </button>
+              )}
             </div>
           </div>
 
