@@ -5,10 +5,11 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  Upload, Loader2, Filter, AlertTriangle,
+  Upload, Loader2, FileDown, Filter, AlertTriangle,
   CheckCircle2, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
   RotateCcw, X, Info,
 } from 'lucide-react';
+import { exportPDF } from '../lib/exportPDF';
 import {
   parseExcelToVarRows, extractPeriods, extractFilterOptions,
   filterRowsByPeriodAndFilters, computeVarianceEffects, generateInsights,
@@ -435,7 +436,9 @@ export default function VarianceAnalysis() {
   const [rows, setRows]               = useState<VarRow[] | null>(null);
   const [loading, setLoading]         = useState(false);
   const [dragging, setDragging]       = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const uploadRef                     = useRef<HTMLInputElement>(null);
+  const pdfRef                        = useRef<HTMLDivElement>(null);
 
   // ── Period / filter state ───────────────────────────────────────────────────
   const [p1Keys, setP1Keys]           = useState<string[]>([]);
@@ -574,14 +577,30 @@ export default function VarianceAnalysis() {
 
   return (
     <div className="min-h-full bg-slate-50">
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <div ref={pdfRef} className="max-w-7xl mx-auto px-6 py-8 space-y-6">
 
         {/* Header */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-slate-900 mb-1">🧮 Analisi Varianze Margini</h1>
-          <p className="text-sm text-slate-500">
-            Carica il tuo file Excel per analizzare gli effetti Volume, Mix, Prezzo e Costo sui margini percentuali
-          </p>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 mb-1">Analisi Varianze Margini</h1>
+            <p className="text-sm text-slate-500">
+              Effetti Volume, Mix, Prezzo e Costo sui margini percentuali
+            </p>
+          </div>
+          {canShowResults && (
+            <button
+              onClick={async () => {
+                if (!pdfRef.current || exportingPdf) return;
+                setExportingPdf(true);
+                try { await exportPDF(pdfRef.current, 'varianza-margini.pdf'); }
+                finally { setExportingPdf(false); }
+              }}
+              disabled={exportingPdf}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
+            </button>
+          )}
         </div>
 
         {/* ── FILTER CARD ─────────────────────────────────────────────────────── */}

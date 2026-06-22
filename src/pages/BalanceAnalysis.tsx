@@ -6,8 +6,9 @@ import {
 } from 'recharts';
 import {
   TrendingUp, Building2, Droplets, AlertCircle,
-  MessageSquareText, PenLine, Calculator, Upload, Loader2, Plus,
+  MessageSquareText, PenLine, Calculator, Upload, Loader2, Plus, FileDown,
 } from 'lucide-react';
+import { exportPDF } from '../lib/exportPDF';
 import { calculateBalanceKPIs } from '../lib/balanceAnalysis';
 import type { BalanceInputYear, BalanceKPI } from '../types';
 
@@ -231,7 +232,9 @@ export default function BalanceAnalysis() {
   const [userNote, setUserNote]       = useState('');
   const [loadingFile, setLoadingFile] = useState(false);
   const [uploadDragging, setUploadDragging] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const uploadInputRef                = useRef<HTMLInputElement>(null);
+  const pdfRef                        = useRef<HTMLDivElement>(null);
 
   async function handleFile(file: File) {
     setLoadingFile(true);
@@ -375,7 +378,7 @@ export default function BalanceAnalysis() {
   }
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl">
+    <div ref={pdfRef} className="p-8 space-y-8 max-w-7xl">
 
       {/* ── Header + Year tabs ─────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-5">
@@ -385,6 +388,19 @@ export default function BalanceAnalysis() {
             Inserimento dati · ricalcolo in tempo reale · {years.length} anni configurati
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={async () => {
+            if (!pdfRef.current || exportingPdf) return;
+            setExportingPdf(true);
+            try { await exportPDF(pdfRef.current, 'bilancio-kpi.pdf'); }
+            finally { setExportingPdf(false); }
+          }}
+          disabled={exportingPdf}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+        >
+          <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
+        </button>
         <div className="flex gap-1 p-1 bg-white border border-slate-200 rounded-xl shadow-sm">
           {years.map((y, i) => (
             <button
@@ -400,6 +416,7 @@ export default function BalanceAnalysis() {
               Anno {y.anno}
             </button>
           ))}
+        </div>
         </div>
       </div>
 

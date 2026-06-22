@@ -778,11 +778,6 @@ function buildCategoryWaterfall(
 
   const sorted = [...catContrib.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   const top    = sorted.slice(0, maxCats);
-  const rest   = sorted.slice(maxCats);
-  if (rest.length > 0) {
-    const s = rest.reduce((acc, [, v]) => acc + v, 0);
-    if (Math.abs(s) > 0.01) top.push(['Altro', s]);
-  }
 
   const pts: WaterfallPoint[] = [];
   let running = total1;

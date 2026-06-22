@@ -5,12 +5,13 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 import {
-  Upload, Download, RotateCcw, Package, TrendingUp, ChartColumn,
+  Upload, Download, FileDown, RotateCcw, Package, TrendingUp, ChartColumn,
   Target, Activity, Percent, Star, TriangleAlert, Users, Heart,
   Zap, Sparkles, CheckCircle2, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
   Minus, Eye, Search, AlertCircle, GitCompare, Layers,
 } from 'lucide-react';
+import { exportPDF } from '../lib/exportPDF';
 import {
   calculate, parseGenericRows, whatIfSimulate,
   buildMigration, aggregateByCategory, SEGMENTS,
@@ -217,6 +218,8 @@ export default function ABCMatrix() {
   const [parseWarnings, setParseWarnings]       = useState<string[]>([]);
   const uploadInputRef  = useRef<HTMLInputElement>(null);
   const mainInputRef    = useRef<HTMLInputElement>(null);
+  const pdfRef          = useRef<HTMLDivElement>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   // ── Calculations ──────────────────────────────────────────────────────────
   const metrics = useMemo(
@@ -397,6 +400,13 @@ export default function ABCMatrix() {
     } catch { alert('Errore lettura file di confronto.'); }
   }
 
+  async function handleExportPDF() {
+    if (!pdfRef.current || exportingPdf) return;
+    setExportingPdf(true);
+    try { await exportPDF(pdfRef.current, 'abc-analisi.pdf'); }
+    finally { setExportingPdf(false); }
+  }
+
   function handleExport() {
     const data = products.map(p => ({
       Codice: p.id, Descrizione: p.name, Categoria: p.category,
@@ -451,7 +461,7 @@ export default function ABCMatrix() {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="p-6 space-y-6 max-w-7xl">
+    <div ref={pdfRef} className="p-6 space-y-6 max-w-7xl">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -476,6 +486,13 @@ export default function ABCMatrix() {
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
           >
             <Download className="w-4 h-4" /> Esporta Excel
+          </button>
+          <button
+            onClick={handleExportPDF}
+            disabled={exportingPdf}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
           </button>
           <button
             onClick={() => { setRows(null); setCompRows(null); setSelectedCell(null); }}
