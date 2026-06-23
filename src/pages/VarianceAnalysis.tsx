@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -400,11 +401,11 @@ function PresenceBadge({ presence }: { presence: 'both' | 'onlyP1' | 'onlyP2' | 
 
 // ─── Effects table row ────────────────────────────────────────────────────────
 // Columns: Brand | Categoria | Sottocategoria | M% P1 | Delta M% Gruppo
-//          | Eff. Prezzo | Eff. Costo | Eff. P+C | M% P2 | Stato
+//          | Eff. VolMix | Eff. Prezzo | Eff. Costo | Eff. P+C | M% P2 | Stato
 //
 // "Delta M% Gruppo" = M% P2 − M% P1 (osservato, non un effetto).
-// "Eff. P+C"        = effPrezzo + effCosto (componente spiegata dal modello).
-// La differenza tra i due è la componente mix/volume interna al gruppo.
+// Identity: Delta = VolMix + Prezzo + Costo (= Eff. P+C + VolMix).
+// "Eff. P+C"        = effPrezzo + effCosto.
 
 function EffectsTableRow({
   group, expanded, onToggle,
@@ -452,6 +453,10 @@ function EffectsTableRow({
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
           {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
         </td>
+        {/* Eff. VolMix */}
+        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effVolMix !== null ? clrPp(group.effVolMix) : 'text-slate-300'}`}>
+          {isPureOneSide ? fmtPp(0) : group.effVolMix !== null ? fmtPp(group.effVolMix) : 'N/D'}
+        </td>
         {/* Eff. Prezzo — 0.00 pp per gruppi presenti in un solo periodo */}
         <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-300'}`}>
           {isPureOneSide ? fmtPp(0) : group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
@@ -492,8 +497,8 @@ function EffectsTableRow({
           <td className={`px-4 py-2 tabular-nums text-right font-semibold ${l.deltaMarginPct !== null ? clrPp(l.deltaMarginPct) : 'text-slate-400'}`}>
             {l.deltaMarginPct !== null ? fmtPp(l.deltaMarginPct) : 'N/D'}
           </td>
-          {/* Eff. Prezzo / Costo / P+C — non significativi a livello singola referenza */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-300" colSpan={3}>—</td>
+          {/* Eff. VolMix / Prezzo / Costo / P+C — non significativi a livello singola referenza */}
+          <td className="px-4 py-2 tabular-nums text-right text-slate-300" colSpan={4}>—</td>
           {/* M% P2 — N/D se onlyP1 */}
           <td className="px-4 py-2 tabular-nums text-right text-slate-500">
             {l.isOnlyP1 ? <span className="text-slate-400">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
@@ -640,9 +645,256 @@ function DetailTableRow({ group, expanded, onToggle, isGrouped, totalRev1, total
   );
 }
 
+// ─── Technical Calculation Table (Admin only) ────────────────────────────────
+
+type TechSortKey =
+  | 'codice' | 'presenza'
+  | 'p1Raw' | 'p1Eff' | 'p2Raw' | 'p2Eff'
+  | 'c1Raw' | 'c1Eff' | 'c2Raw' | 'c2Eff'
+  | 'm1' | 'm2' | 'mix1' | 'mix2';
+
+function TechSortTh({
+  col, label, sortKey, sortDir, onSort,
+}: {
+  col: TechSortKey; label: string;
+  sortKey: TechSortKey; sortDir: 'asc' | 'desc';
+  onSort: (col: TechSortKey) => void;
+}) {
+  const active = sortKey === col;
+  return (
+    <th
+      className="px-3 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 whitespace-nowrap"
+      onClick={() => onSort(col)}
+    >
+      {label}{active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+    </th>
+  );
+}
+
+function TechnicalCalcTable({
+  lines, totalRev1, totalRev2,
+}: {
+  lines: ComparedLine[];
+  totalRev1: number;
+  totalRev2: number;
+}) {
+  const [search,  setSearch]  = useState('');
+  const [sortKey, setSortKey] = useState<TechSortKey>('codice');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  function handleSort(col: TechSortKey) {
+    if (sortKey === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(col); setSortDir('asc'); }
+  }
+
+  const fmtPrice = (v: number | null) =>
+    v === null ? 'N/D' : `€${v.toFixed(4)}`;
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return lines;
+    return lines.filter(l =>
+      l.codice.toLowerCase().includes(q) || l.descrizione.toLowerCase().includes(q),
+    );
+  }, [lines, search]);
+
+  const sorted = useMemo(() => {
+    const getValue = (l: ComparedLine): number | string => {
+      switch (sortKey) {
+        case 'codice':   return l.codice;
+        case 'presenza': return l.presence;
+        case 'p1Raw':    return l.price1Raw    ?? -Infinity;
+        case 'p1Eff':    return l.price1Effective;
+        case 'p2Raw':    return l.price2Raw    ?? -Infinity;
+        case 'p2Eff':    return l.price2Effective;
+        case 'c1Raw':    return l.unitCost1Raw ?? -Infinity;
+        case 'c1Eff':    return l.unitCost1Effective;
+        case 'c2Raw':    return l.unitCost2Raw ?? -Infinity;
+        case 'c2Eff':    return l.unitCost2Effective;
+        case 'm1':       return l.marginPct1Raw ?? -Infinity;
+        case 'm2':       return l.marginPct2Raw ?? -Infinity;
+        case 'mix1':     return totalRev1 > 0 ? l.rev1 / totalRev1 : 0;
+        case 'mix2':     return totalRev2 > 0 ? l.rev2 / totalRev2 : 0;
+        default:         return '';
+      }
+    };
+    return [...filtered].sort((a, b) => {
+      const av = getValue(a);
+      const bv = getValue(b);
+      const cmp =
+        typeof av === 'string' && typeof bv === 'string'
+          ? av.localeCompare(bv)
+          : (av as number) - (bv as number);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sortKey, sortDir, totalRev1, totalRev2]);
+
+  const sortProps = { sortKey, sortDir, onSort: handleSort };
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Tabella Tecnica di Calcolo</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Valori effettivi usati dal motore di calcolo per ogni referenza
+          </p>
+        </div>
+        <input
+          type="text"
+          placeholder="Filtra per codice / descrizione…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" style={{ minWidth: 1480 }}>
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              <TechSortTh col="codice"   label="Codice / Descrizione" {...sortProps} />
+              <TechSortTh col="presenza" label="Presenza"             {...sortProps} />
+              <TechSortTh col="p1Raw"    label="Price P1 raw"         {...sortProps} />
+              <TechSortTh col="p1Eff"    label="Price P1 eff"         {...sortProps} />
+              <TechSortTh col="p2Raw"    label="Price P2 raw"         {...sortProps} />
+              <TechSortTh col="p2Eff"    label="Price P2 eff"         {...sortProps} />
+              <TechSortTh col="c1Raw"    label="Costo P1 raw"         {...sortProps} />
+              <TechSortTh col="c1Eff"    label="Costo P1 eff"         {...sortProps} />
+              <TechSortTh col="c2Raw"    label="Costo P2 raw"         {...sortProps} />
+              <TechSortTh col="c2Eff"    label="Costo P2 eff"         {...sortProps} />
+              <TechSortTh col="m1"       label="M% P1 raw"            {...sortProps} />
+              <TechSortTh col="m2"       label="M% P2 raw"            {...sortProps} />
+              <TechSortTh col="mix1"     label="Mix P1 %"             {...sortProps} />
+              <TechSortTh col="mix2"     label="Mix P2 %"             {...sortProps} />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={14} className="px-6 py-8 text-center text-xs text-slate-400">
+                  Nessuna referenza trovata.
+                </td>
+              </tr>
+            ) : sorted.map(l => {
+              const mix1pct = totalRev1 > 0 ? (l.rev1 / totalRev1 * 100) : 0;
+              const mix2pct = totalRev2 > 0 ? (l.rev2 / totalRev2 * 100) : 0;
+              const p1Fb = l.flags.priceFallback && l.price1Raw === null;
+              const p2Fb = l.flags.priceFallback && l.price2Raw === null;
+              const c1Fb = l.flags.costFallback  && l.unitCost1Raw === null;
+              const c2Fb = l.flags.costFallback  && l.unitCost2Raw === null;
+
+              const presence = l.presence as 'both' | 'onlyP1' | 'onlyP2';
+
+              return (
+                <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
+                  {/* 1. Codice / Descrizione */}
+                  <td className="px-3 py-2">
+                    <div className="font-mono text-slate-400 text-[9px] leading-none">{l.codice}</div>
+                    <div className="text-slate-700 text-[10px] max-w-[180px] truncate mt-0.5" title={l.descrizione}>
+                      {l.descrizione || '—'}
+                    </div>
+                  </td>
+
+                  {/* 2. Presenza */}
+                  <td className="px-3 py-2">
+                    {presence === 'onlyP2'
+                      ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Nuovo in P2</span>
+                      : presence === 'onlyP1'
+                        ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-700 whitespace-nowrap">Uscito in P2</span>
+                        : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 whitespace-nowrap">Entrambi</span>
+                    }
+                  </td>
+
+                  {/* 3. Price P1 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
+                    {fmtPrice(l.price1Raw)}
+                  </td>
+
+                  {/* 4. Price P1 eff */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
+                    {fmtPrice(l.price1Effective)}
+                    {p1Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
+                  </td>
+
+                  {/* 5. Price P2 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
+                    {fmtPrice(l.price2Raw)}
+                  </td>
+
+                  {/* 6. Price P2 eff */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
+                    {fmtPrice(l.price2Effective)}
+                    {p2Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
+                  </td>
+
+                  {/* 7. Costo P1 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
+                    {fmtPrice(l.unitCost1Raw)}
+                  </td>
+
+                  {/* 8. Costo P1 eff */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
+                    {fmtPrice(l.unitCost1Effective)}
+                    {c1Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
+                  </td>
+
+                  {/* 9. Costo P2 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
+                    {fmtPrice(l.unitCost2Raw)}
+                  </td>
+
+                  {/* 10. Costo P2 eff */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
+                    {fmtPrice(l.unitCost2Effective)}
+                    {c2Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
+                  </td>
+
+                  {/* 11. M% P1 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
+                    {l.marginPct1Raw !== null ? fmtPct(l.marginPct1Raw * 100) : 'N/D'}
+                  </td>
+
+                  {/* 12. M% P2 raw */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
+                    {l.marginPct2Raw !== null ? fmtPct(l.marginPct2Raw * 100) : 'N/D'}
+                  </td>
+
+                  {/* 13. Mix P1 % */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
+                    {mix1pct.toFixed(2)}%
+                  </td>
+
+                  {/* 14. Mix P2 % */}
+                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
+                    {mix2pct.toFixed(2)}%
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Legend */}
+      <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/50">
+        <p className="text-[10px] text-slate-400">
+          <sup className="text-amber-500 font-bold">*</sup>
+          {' '}= valore sostituito con fallback dal periodo opposto perché mancante o zero
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   // ── Upload state ────────────────────────────────────────────────────────────
   const [rows, setRows]               = useState<VarRow[] | null>(null);
   const [loading, setLoading]         = useState(false);
@@ -1093,14 +1345,14 @@ export default function VarianceAnalysis() {
               <div className="px-6 py-4 border-b border-slate-100">
                 <h3 className="text-sm font-semibold text-slate-800">Variazione Margine % per Gruppo</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Delta M% Gruppo = M% P2 − M% P1 (osservato). Eff. Prezzo e Costo = componenti spiegate dal modello a livello gruppo. Clicca ▶ per il dettaglio referenze.
+                  Delta M% Gruppo = M% P2 − M% P1 (osservato). Delta = VolMix + Prezzo + Costo. Clicca ▶ per il dettaglio referenze.
                 </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-slate-50">
-                      {['Brand', 'Categoria', 'Sottocategoria', 'M% P1', 'Delta M% Gruppo', 'Eff. Prezzo', 'Eff. Costo', 'Eff. P+C', 'M% P2', 'Stato'].map(h => (
+                      {['Brand', 'Categoria', 'Sottocategoria', 'M% P1', 'Delta M% Gruppo', 'Eff. VolMix', 'Eff. Prezzo', 'Eff. Costo', 'Eff. P+C', 'M% P2', 'Stato'].map(h => (
                         <th key={h} className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wide text-right first:text-left whitespace-nowrap last:text-center">
                           {h}
                         </th>
@@ -1355,6 +1607,15 @@ export default function VarianceAnalysis() {
                 </table>
               </div>
             </div>
+
+            {/* ── Tabella Tecnica di Calcolo (Admin only) ─────────────────────── */}
+            {isAdmin && (
+              <TechnicalCalcTable
+                lines={effects.lines}
+                totalRev1={effects.totalRev1}
+                totalRev2={effects.totalRev2}
+              />
+            )}
           </>
         )}
 
