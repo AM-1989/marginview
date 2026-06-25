@@ -113,6 +113,12 @@ export interface ComparedLine {
   mix1: number;   // q1 / Q1
   mix2: number;   // q2 / Q2
 
+  // ── Mix decomposition intermediate quantities (set by computeMixDecomposition) ──
+  qMixBrand?:   number;   // Q2_brand   × (q1_i / Q1_brand)
+  qMixCat?:     number;   // Q2_bc      × (q1_i / Q1_bc)
+  qMixSubCat?:  number;   // Q2_bcs     × (q1_i / Q1_bcs)
+  qMixFormato?: number;   // Q2_bcsf    × (q1_i / Q1_bcsf)
+
   // ── Backward-compat aliases (raw values, null when period absent) ─────────
   p1: number | null;
   c1: number | null;
@@ -194,6 +200,30 @@ export interface EffectsResult {
   topVariations: ComparedLine[];
   topBest: ComparedLine[];
   topWorst: ComparedLine[];
+  // Mix hierarchical decomposition
+  mixDecomposition: MixDecomposition;
+}
+
+// One group's additive contribution to a sequential level's marginal effect (pp, decimal)
+export interface MixLevelGroup {
+  name: string;
+  contribution: number; // pp (decimal) — sum over all groups = the level's effect
+}
+
+// Sequential hierarchical decomposition of effMix (all values in decimal pp, e.g. 0.023 = 2.3 pp)
+export interface MixDecomposition {
+  brand:          number;  // marginal effect of brand-level mix shift
+  categoria:      number;  // marginal effect of brand×categoria mix shift
+  sottocategoria: number;  // marginal effect of brand×cat×subcat mix shift
+  formato:        number;  // marginal effect of brand×cat×subcat×formato mix shift
+  residuo:        number;  // within-formato referenza-level residual
+  totale:         number;  // = sum of above = effMix (verification, tolerance 0.001)
+  // Per-group breakdown — each array is additive (sum = level's marginal effect)
+  brandBreakdown:          MixLevelGroup[];
+  categoriaBreakdown:      MixLevelGroup[];
+  sottocategoriaBreakdown: MixLevelGroup[];
+  formatoBreakdown:        MixLevelGroup[];
+  productBreakdown:        MixLevelGroup[];  // per referenza contribution to residuo
 }
 
 export interface AIInsight {
@@ -914,6 +944,173 @@ function fmtE(v: number): string {
   }).format(v);
 }
 
+// ─── computeMixDecomposition — sequential hierarchical decomposition of effMix ──
+//
+// Decomposes effMix = marginPctM − marginPctV into marginal contributions by
+// hierarchy level: Brand → Categoria → Sottocategoria → Formato → Residuo.
+//
+// Each step builds a "hybrid" scenario where the group-level quantities match
+// the actual P2 totals, but within each group lines are distributed in P1
+// proportions. The difference between consecutive scenarios is the marginal
+// effect of adding one more dimension of granularity.
+//
+// Telescoping identity (always exact):
+//   effMixBrand + effMixCat + effMixSubCat + effMixFormato + residuo = effMix
+//
+// Fallback: if a group has Q1 = 0 (all lines are onlyP2), within-group
+// distribution uses q2 proportions (which simplifies to qS = q2_i), so
+// the brand contributes its full actual q2 effect instead of 0.
+//
+// Side-effect: mutates lines to store intermediate quantities qMixBrand/Cat/SubCat/Formato.
+
+function computeMixDecomposition(
+  lines: ComparedLine[],
+  marginPctV: number,
+  marginPctM: number,
+): MixDecomposition {
+  const effMixTotal = marginPctM - marginPctV;
+
+  // Build one hybrid scenario and return its margin%.
+  // groupKey(l): the dimension key for line l at this level.
+  // Also stores the computed q on each line via the setter.
+  function buildScenario(
+    groupKey: (l: ComparedLine) => string,
+    setter: (l: ComparedLine, q: number) => void,
+  ): number {
+    const groupQ1 = new Map<string, number>();
+    const groupQ2 = new Map<string, number>();
+    for (const l of lines) {
+      const k = groupKey(l);
+      groupQ1.set(k, (groupQ1.get(k) ?? 0) + l.q1);
+      groupQ2.set(k, (groupQ2.get(k) ?? 0) + l.q2);
+    }
+    let revS = 0, costS = 0;
+    for (const l of lines) {
+      const k   = groupKey(l);
+      const Q1g = groupQ1.get(k)!;
+      const Q2g = groupQ2.get(k)!;
+      // P1-proportional distribution within group; fallback to q2 if Q1g = 0
+      const qS = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+      setter(l, qS);
+      revS  += qS * l.price1Effective;
+      costS += qS * l.unitCost1Effective;
+    }
+    return revS > 0 ? (revS - costS) / revS : marginPctV;
+  }
+
+  const mpctBrand    = buildScenario(
+    l => l.brand    || 'N/D',
+    (l, q) => { l.qMixBrand = q; },
+  );
+  const mpctCat      = buildScenario(
+    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
+    (l, q) => { l.qMixCat = q; },
+  );
+  const mpctSubCat   = buildScenario(
+    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
+    (l, q) => { l.qMixSubCat = q; },
+  );
+  const mpctFormato  = buildScenario(
+    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}|${l.formato || 'N/D'}`,
+    (l, q) => { l.qMixFormato = q; },
+  );
+
+  const brand         = mpctBrand   - marginPctV;
+  const categoria     = mpctCat     - mpctBrand;
+  const sottocategoria = mpctSubCat - mpctCat;
+  const formato       = mpctFormato - mpctSubCat;
+  const residuo       = marginPctM  - mpctFormato;
+  const totale        = brand + categoria + sottocategoria + formato + residuo;
+  const balanceErr    = Math.abs(totale - effMixTotal);
+
+  dbg('─── mixDecomposition ──────────────────────────────────────────');
+  dbg('brand         ', (brand          * 100).toFixed(4), 'pp');
+  dbg('categoria     ', (categoria      * 100).toFixed(4), 'pp');
+  dbg('sottocategoria', (sottocategoria * 100).toFixed(4), 'pp');
+  dbg('formato       ', (formato        * 100).toFixed(4), 'pp');
+  dbg('residuo       ', (residuo        * 100).toFixed(4), 'pp');
+  dbg('totale        ', (totale         * 100).toFixed(4), 'pp  (effMix =', (effMixTotal * 100).toFixed(4), ')');
+
+  if (balanceErr > 0.001) {
+    console.warn('[VARIANCE] mixDecomposition quadrature FAILED — balance error:',
+      (balanceErr * 100).toFixed(6), 'pp',
+      { brand, categoria, sottocategoria, formato, residuo, totale, effMixTotal });
+  } else {
+    dbg('quadrature ✓ — balance error:', (balanceErr * 100).toFixed(6), 'pp');
+  }
+  dbg('────────────────────────────────────────────────────────────────');
+
+  // ── Per-group additive breakdown for each hierarchical level ─────────────
+  // For scenarios A → B: contrib_g = margin_contribution_g_B - margin_contribution_g_A
+  // where margin_contribution_g = (revB_g - costB_g) / revB_total
+  // Σ_g contrib_g = marginPctB - marginPctA  (exactly additive by construction)
+  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
+
+  function levelBreakdown(
+    keyFn: (l: ComparedLine) => string,
+    getQBefore: (l: ComparedLine) => number,
+    getQAfter:  (l: ComparedLine) => number,
+  ): MixLevelGroup[] {
+    let revBefore = 0, costBefore = 0, revAfter = 0, costAfter = 0;
+    for (const l of lines) {
+      const qB = getQBefore(l);
+      const qA = getQAfter(l);
+      revBefore  += qB * l.price1Effective;
+      costBefore += qB * l.unitCost1Effective;
+      revAfter   += qA * l.price1Effective;
+      costAfter  += qA * l.unitCost1Effective;
+    }
+    const map = new Map<string, { rb: number; cb: number; ra: number; ca: number }>();
+    for (const l of lines) {
+      const k = keyFn(l);
+      if (!map.has(k)) map.set(k, { rb: 0, cb: 0, ra: 0, ca: 0 });
+      const g = map.get(k)!;
+      g.rb += getQBefore(l) * l.price1Effective;
+      g.cb += getQBefore(l) * l.unitCost1Effective;
+      g.ra += getQAfter(l)  * l.price1Effective;
+      g.ca += getQAfter(l)  * l.unitCost1Effective;
+    }
+    const result: MixLevelGroup[] = [];
+    for (const [name, g] of map.entries()) {
+      const mBefore = revBefore > 0 ? (g.rb - g.cb) / revBefore : 0;
+      const mAfter  = revAfter  > 0 ? (g.ra - g.ca) / revAfter  : 0;
+      result.push({ name, contribution: mAfter - mBefore });
+    }
+    return result.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  }
+
+  const brandBreakdown = levelBreakdown(
+    l => l.brand || 'N/D',
+    l => Q2 * l.mix1,
+    l => l.qMixBrand ?? 0,
+  );
+  const categoriaBreakdown = levelBreakdown(
+    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'}`,
+    l => l.qMixBrand ?? 0,
+    l => l.qMixCat ?? 0,
+  );
+  const sottocategoriaBreakdown = levelBreakdown(
+    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'}`,
+    l => l.qMixCat ?? 0,
+    l => l.qMixSubCat ?? 0,
+  );
+  const formatoBreakdown = levelBreakdown(
+    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'} › ${l.formato || 'N/D'}`,
+    l => l.qMixSubCat ?? 0,
+    l => l.qMixFormato ?? 0,
+  );
+  const productBreakdown = levelBreakdown(
+    l => l.descrizione || l.codice || l.key,
+    l => l.qMixFormato ?? 0,
+    l => l.q2,
+  );
+
+  return {
+    brand, categoria, sottocategoria, formato, residuo, totale,
+    brandBreakdown, categoriaBreakdown, sottocategoriaBreakdown, formatoBreakdown, productBreakdown,
+  };
+}
+
 // ─── computeVarianceEffects — main entry point ────────────────────────────────
 // Flow: getReferenceKeyFn → aggregatePeriod × 2 → fullOuterJoin → kpis
 //       → enrichWithMix → effects → quadrature → tableGroups → waterfall → drivers
@@ -995,6 +1192,9 @@ export function computeVarianceEffects(
              .map(l => ({ key: l.key, presence: l.presence, warnings: l.warnings })));
   }
 
+  // ── Mix hierarchical decomposition (mutates lines with qMix* fields) ────
+  const mixDecomposition = computeMixDecomposition(lines, eff.marginPctV, eff.marginPctM);
+
   // ── Step 10: rollup for display ──────────────────────────────────────────
   const tableGroups = buildTableGroups(lines);
 
@@ -1041,6 +1241,7 @@ export function computeVarianceEffects(
     lines, tableGroups,
     waterfallRev, waterfallMargin, waterfallMarginPct,
     topVariations, topBest, topWorst,
+    mixDecomposition,
   };
 }
 

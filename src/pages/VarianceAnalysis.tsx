@@ -18,7 +18,7 @@ import {
 } from '../lib/varianceAnalysis';
 import type {
   VarRow, FilterDim,
-  ComparedLine, TableGroup, WaterfallPoint, EffectsResult, AIInsight,
+  ComparedLine, TableGroup, WaterfallPoint, EffectsResult, AIInsight, MixLevelGroup,
 } from '../lib/varianceAnalysis';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -100,21 +100,154 @@ function MixYTick({ x, y, payload }: { x?: number; y?: number; payload?: { value
   );
 }
 
+// ─── Level breakdown mini-table ───────────────────────────────────────────────
+
+function LevelBreakdownTable({
+  groups, levelEffect, maxVisible = 8,
+}: {
+  groups: MixLevelGroup[];
+  levelEffect: number;
+  maxVisible?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? groups : groups.slice(0, maxVisible);
+  const hidden  = groups.length - maxVisible;
+
+  return (
+    <div className="border border-slate-100 rounded-xl overflow-hidden text-[10px]">
+      <div className="bg-slate-50 grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
+        <span>Gruppo</span>
+        <span className="text-right">Contributo</span>
+        <span className="text-right w-14">% su livello</span>
+      </div>
+      {visible.map(({ name, contribution }) => {
+        const pct = levelEffect !== 0 ? (contribution / levelEffect * 100) : 0;
+        return (
+          <div key={name} className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 border-b border-slate-50 hover:bg-slate-50/60 items-center">
+            <span className="text-slate-600 truncate" title={name}>{name}</span>
+            <span className={`font-semibold tabular-nums ${clrPp(contribution)}`}>
+              {fmtPp(contribution)}
+            </span>
+            <span className={`text-right w-14 tabular-nums ${clrPp(contribution)}`}>
+              {pct >= 0 ? '+' : ''}{pct.toFixed(0)}%
+            </span>
+          </div>
+        );
+      })}
+      {!expanded && hidden > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full px-3 py-1.5 text-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-t border-slate-100"
+        >
+          +{hidden} altri…
+        </button>
+      )}
+      {expanded && groups.length > maxVisible && (
+        <button
+          onClick={() => setExpanded(false)}
+          className="w-full px-3 py-1.5 text-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-t border-slate-100"
+        >
+          Mostra meno
+        </button>
+      )}
+      <div className={`grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 border-t-2 border-slate-300 ${levelEffect >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+        <span className="font-bold text-slate-700">TOTALE LIVELLO</span>
+        <span className={`font-bold tabular-nums ${clrPp(levelEffect)}`}>{fmtPp(levelEffect)}</span>
+        <span className="w-14 text-right text-slate-400">100%</span>
+      </div>
+    </div>
+  );
+}
+
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   const effMixPp = effects.effMix * 100;
+  const md = effects.mixDecomposition;
+  const [openLevel, setOpenLevel] = useState<string | null>(null);
+
+  const seqLevels: { key: string; label: string; value: number; breakdown: MixLevelGroup[] }[] = [
+    { key: 'brand',          label: 'Mix Brand',          value: md.brand,          breakdown: md.brandBreakdown },
+    { key: 'categoria',      label: 'Mix Categoria',      value: md.categoria,      breakdown: md.categoriaBreakdown },
+    { key: 'sottocategoria', label: 'Mix Sottocategoria', value: md.sottocategoria, breakdown: md.sottocategoriaBreakdown },
+    { key: 'formato',        label: 'Mix Formato',        value: md.formato,        breakdown: md.formatoBreakdown },
+    { key: 'residuo',        label: 'Residuo (referenze)',value: md.residuo,        breakdown: md.productBreakdown },
+  ];
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-      <div className="mb-1">
+      <div className="mb-4">
         <h4 className="text-sm font-semibold text-slate-700">Analisi Effetto Mix per Dimensione</h4>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Ogni dimensione è una vista <strong className="text-slate-500">indipendente</strong> e completa dell'effetto mix —
+      </div>
+
+      {/* ── Scomposizione Sequenziale con breakdown per livello ──────── */}
+      <div className="flex gap-6 mb-6">
+        <div className="flex-none w-72">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+            Scomposizione Effetto Mix
+          </p>
+          <p className="text-[9px] text-slate-400 mb-2">Clicca un livello per vedere il dettaglio gruppi</p>
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            {seqLevels.map(({ key, label, value, breakdown }) => {
+              const isOpen = openLevel === key;
+              const hasBreakdown = breakdown.length > 1 || (breakdown.length === 1 && breakdown[0].name !== '_');
+              return (
+                <div key={key}>
+                  <div
+                    className={`flex items-center justify-between px-3 py-2 border-b border-slate-100 text-xs transition-colors ${hasBreakdown ? 'cursor-pointer hover:bg-slate-50' : ''} ${isOpen ? 'bg-blue-50' : ''}`}
+                    onClick={() => hasBreakdown ? setOpenLevel(isOpen ? null : key) : undefined}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {hasBreakdown && (
+                        isOpen
+                          ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                          : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                      )}
+                      <span className="text-slate-600">{label}</span>
+                    </div>
+                    <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
+                  </div>
+                  {isOpen && (
+                    <div className="px-3 py-2 bg-blue-50/50 border-b border-slate-100">
+                      <LevelBreakdownTable groups={breakdown} levelEffect={value} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+              <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
+              <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
+            </div>
+          </div>
+          <p className="text-[9px] text-slate-400 mt-1.5 leading-relaxed">
+            La somma delle componenti coincide con l'Effetto Mix Totale. I contributi per gruppo sono additivi a ogni livello.
+          </p>
+        </div>
+        <div className="flex-1 self-start space-y-2">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            La scomposizione <strong className="text-slate-600">sequenziale</strong> decompone l'Effetto Mix{' '}
+            <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
+              {fmtPp(effects.effMix)}
+            </span>{' '}
+            per livello gerarchico (Brand → Categoria → Sottocategoria → Formato). Ogni riga mostra il contributo <strong className="text-slate-600">marginale</strong> del livello aggiuntivo, mantenendo P1 come riferimento. Il Residuo cattura le variazioni a livello singola referenza.
+          </p>
+          <p className="text-[10px] text-slate-400">
+            I 4 grafici a destra mostrano invece viste <strong>indipendenti</strong> — ognuno spiega l'intero effetto Mix da una sola dimensione.
+          </p>
+        </div>
+      </div>
+
+      {/* ── 4 grafici indipendenti per dimensione ────────────────────── */}
+      <div className="border-t border-slate-100 pt-4">
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Vista Indipendente per Dimensione</p>
+        <p className="text-xs text-slate-400 mb-4">
+          Ogni dimensione è una vista <strong className="text-slate-500">indipendente</strong> e completa —
           la somma delle barre di ciascun grafico = effMix totale{' '}
           <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
             {fmtPp(effects.effMix)}
           </span>
         </p>
       </div>
-      <div className="grid grid-cols-2 gap-x-8 gap-y-6 mt-5">
+      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
         {MIX_DIMS.map(({ key, label }) => {
           const data = computeMixByDim(effects, key);
           // Verify: sum of all bars should equal effMixPp exactly
@@ -186,6 +319,162 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Mix per Prodotto table ───────────────────────────────────────────────────
+
+function MixPerProdotto({ effects }: { effects: EffectsResult }) {
+  const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'contrib' | 'mixDelta' | 'name'>('contrib');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const { lines, totalRev1, totalRev2, totalRevM } = effects;
+  const Q1 = lines.reduce((s, l) => s + l.q1, 0);
+  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
+
+  const rows = useMemo(() => lines.map(l => {
+    const mixVolP1 = Q1 > 0 ? l.q1 / Q1 : 0;
+    const mixVolP2 = Q2 > 0 ? l.q2 / Q2 : 0;
+    const mixRevP1 = totalRev1 > 0 ? l.rev1 / totalRev1 : 0;
+    const mixRevP2 = totalRev2 > 0 ? l.rev2 / totalRev2 : 0;
+    const m1 = l.price1Effective > 0
+      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective
+      : 0;
+    const shareM  = totalRevM > 0 ? (l.q2 * l.price1Effective) / totalRevM : 0;
+    const shareP1 = totalRev1 > 0 ? (l.q1 * l.price1Effective) / totalRev1 : 0;
+    const contrib = m1 * (shareM - shareP1); // decimal pp
+    return { line: l, mixVolP1, mixVolP2, mixRevP1, mixRevP2, contrib };
+  }), [lines, Q1, Q2, totalRev1, totalRev2, totalRevM]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return rows;
+    return rows.filter(r =>
+      r.line.descrizione.toLowerCase().includes(q) ||
+      r.line.codice.toLowerCase().includes(q) ||
+      r.line.brand.toLowerCase().includes(q) ||
+      r.line.categoria.toLowerCase().includes(q),
+    );
+  }, [rows, search]);
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let cmp: number;
+      if (sortBy === 'contrib')  cmp = Math.abs(b.contrib)  - Math.abs(a.contrib);
+      else if (sortBy === 'mixDelta') cmp = Math.abs(b.mixVolP2 - b.mixVolP1) - Math.abs(a.mixVolP2 - a.mixVolP1);
+      else cmp = (a.line.descrizione || a.line.codice).localeCompare(b.line.descrizione || b.line.codice);
+      return sortDir === 'desc' ? cmp : -cmp;
+    });
+  }, [filtered, sortBy, sortDir]);
+
+  const toggleSort = (col: typeof sortBy) => {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(col); setSortDir('desc'); }
+  };
+
+  const totalContrib = rows.reduce((s, r) => s + r.contrib, 0);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Mix per Prodotto</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Quota di mix volume e ricavi per ogni referenza — Contributo a Eff. Mix = Σ ={' '}
+            <span className={`font-semibold ${clrPp(totalContrib)}`}>{fmtPp(totalContrib)}</span>
+          </p>
+        </div>
+        <input
+          type="text"
+          placeholder="Cerca prodotto, brand, categoria…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" style={{ minWidth: 1100 }}>
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              <th
+                className="px-4 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
+                onClick={() => toggleSort('name')}
+              >
+                Prodotto {sortBy === 'name' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th className="px-3 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Brand</th>
+              <th className="px-3 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Categoria</th>
+              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Vol P1%</th>
+              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Rev P1%</th>
+              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Vol P2%</th>
+              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Rev P2%</th>
+              <th
+                className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
+                onClick={() => toggleSort('mixDelta')}
+              >
+                Δ Mix Vol {sortBy === 'mixDelta' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th
+                className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
+                onClick={() => toggleSort('contrib')}
+              >
+                Contributo Eff.Mix {sortBy === 'contrib' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th className="px-3 py-2.5 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-6 py-8 text-center text-xs text-slate-400">Nessuna referenza trovata.</td>
+              </tr>
+            ) : sorted.map(({ line: l, mixVolP1, mixVolP2, mixRevP1, mixRevP2, contrib }) => {
+              const dVol = mixVolP2 - mixVolP1;
+              return (
+                <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
+                  <td className="px-4 py-2">
+                    <div className="font-mono text-[9px] text-slate-400">{l.codice}</div>
+                    <div className="text-slate-700 max-w-[200px] truncate text-[10px]" title={l.descrizione}>{l.descrizione || '—'}</div>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600 text-[10px]">{l.brand || '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 text-[10px]">{l.categoria || '—'}</td>
+                  <td className="px-3 py-2 tabular-nums text-right text-slate-600">
+                    {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : `${(mixVolP1 * 100).toFixed(2)}%`}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right text-slate-500">
+                    {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : `${(mixRevP1 * 100).toFixed(2)}%`}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right text-slate-600">
+                    {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : `${(mixVolP2 * 100).toFixed(2)}%`}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums text-right text-slate-500">
+                    {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : `${(mixRevP2 * 100).toFixed(2)}%`}
+                  </td>
+                  <td className={`px-3 py-2 tabular-nums text-right font-medium ${clrPp(dVol)}`}>
+                    {l.presence === 'both' ? `${dVol >= 0 ? '+' : ''}${(dVol * 100).toFixed(2)} pp` : '—'}
+                  </td>
+                  <td className={`px-3 py-2 tabular-nums text-right font-semibold ${clrPp(contrib)}`}>
+                    {fmtPp(contrib)}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <PresenceBadge presence={l.presence} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
+              <td className="px-4 py-2.5 text-slate-700" colSpan={7}>TOTALE</td>
+              <td className="px-3 py-2.5 tabular-nums text-right text-slate-400">—</td>
+              <td className={`px-3 py-2.5 tabular-nums text-right ${clrPp(totalContrib)}`}>{fmtPp(totalContrib)}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );
@@ -889,6 +1178,249 @@ function TechnicalCalcTable({
   );
 }
 
+// ─── Scomposizione Mix per Referenza ─────────────────────────────────────────
+
+interface PerLineMixRow {
+  line:       ComparedLine;
+  mixBrand:   number;  // pp (decimal) — contribution to Brand level effect (V→Brand)
+  mixCat:     number;  // pp — marginal contribution (Brand→Categoria)
+  mixSubCat:  number;  // pp — marginal contribution (Categoria→Sottocategoria)
+  mixFormato: number;  // pp — Sottocategoria→M, absorbs residuo so Σ 4 cols = effMix
+  effPrezzo:  number;  // pp — per-line contribution to Effetto Prezzo (M→P)
+  effCosto:   number;  // pp — per-line contribution to Effetto Costo (P→C)
+}
+
+function buildPerLineMixRows(effects: EffectsResult): PerLineMixRow[] {
+  const { lines, totalRevM, totalRev2 } = effects;
+  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
+
+  // Scenario-level revenue/cost totals (denominators for the additive attribution)
+  let rV = 0, cV = 0, rB = 0, cB = 0, rC = 0, cC = 0, rS = 0, cS = 0;
+  for (const l of lines) {
+    const qV = Q2 * l.mix1;
+    rV += qV                * l.price1Effective;   cV += qV                * l.unitCost1Effective;
+    rB += (l.qMixBrand  ?? 0) * l.price1Effective;  cB += (l.qMixBrand  ?? 0) * l.unitCost1Effective;
+    rC += (l.qMixCat    ?? 0) * l.price1Effective;  cC += (l.qMixCat    ?? 0) * l.unitCost1Effective;
+    rS += (l.qMixSubCat ?? 0) * l.price1Effective;  cS += (l.qMixSubCat ?? 0) * l.unitCost1Effective;
+  }
+
+  // margin_contribution(group) / totalRev  →  additive: Σ_i = marginPct_scenario
+  const mc = (margin: number, rev: number) => rev > 0 ? margin / rev : 0;
+
+  return lines.map(l => {
+    const qV  = Q2 * l.mix1;
+    const rvV = qV                * l.price1Effective;   const cvV = qV                * l.unitCost1Effective;
+    const rvB = (l.qMixBrand  ?? 0) * l.price1Effective;  const cvB = (l.qMixBrand  ?? 0) * l.unitCost1Effective;
+    const rvC = (l.qMixCat    ?? 0) * l.price1Effective;  const cvC = (l.qMixCat    ?? 0) * l.unitCost1Effective;
+    const rvS = (l.qMixSubCat ?? 0) * l.price1Effective;  const cvS = (l.qMixSubCat ?? 0) * l.unitCost1Effective;
+    const rvM = l.q2 * l.price1Effective;                  const cvM = l.q2 * l.unitCost1Effective;
+
+    return {
+      line: l,
+      mixBrand:   mc(rvB - cvB, rB) - mc(rvV - cvV, rV),
+      mixCat:     mc(rvC - cvC, rC) - mc(rvB - cvB, rB),
+      mixSubCat:  mc(rvS - cvS, rS) - mc(rvC - cvC, rC),
+      mixFormato: mc(rvM - cvM, totalRevM) - mc(rvS - cvS, rS),  // absorbs residuo
+      effPrezzo:  mc(l.rev2 - cvM, totalRev2) - mc(rvM - cvM, totalRevM),
+      effCosto:   mc(l.rev2 - l.cost2, totalRev2) - mc(l.rev2 - cvM, totalRev2),
+    };
+  });
+}
+
+type ScompSortKey =
+  | 'codice' | 'mPct1' | 'mixBrand' | 'mixCat' | 'mixSubCat'
+  | 'mixFormato' | 'effPrezzo' | 'effCosto' | 'mPct2';
+
+function ScompMixReferenzaTable({ effects }: { effects: EffectsResult }) {
+  const [search,  setSearch]  = useState('');
+  const [sortKey, setSortKey] = useState<ScompSortKey>('mixBrand');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const rows = useMemo(() => buildPerLineMixRows(effects), [effects]);
+
+  const totals = useMemo(() => ({
+    mixBrand:   rows.reduce((s, r) => s + r.mixBrand,   0),
+    mixCat:     rows.reduce((s, r) => s + r.mixCat,     0),
+    mixSubCat:  rows.reduce((s, r) => s + r.mixSubCat,  0),
+    mixFormato: rows.reduce((s, r) => s + r.mixFormato, 0),
+    effPrezzo:  rows.reduce((s, r) => s + r.effPrezzo,  0),
+    effCosto:   rows.reduce((s, r) => s + r.effCosto,   0),
+  }), [rows]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return rows;
+    return rows.filter(r =>
+      r.line.codice.toLowerCase().includes(q) || r.line.descrizione.toLowerCase().includes(q),
+    );
+  }, [rows, search]);
+
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
+    let cmp: number;
+    if (sortKey === 'codice') {
+      cmp = (a.line.codice || '').localeCompare(b.line.codice || '');
+    } else {
+      const v = (r: PerLineMixRow): number => {
+        switch (sortKey) {
+          case 'mPct1':      return r.line.marginPct1Raw ?? -Infinity;
+          case 'mixBrand':   return r.mixBrand;
+          case 'mixCat':     return r.mixCat;
+          case 'mixSubCat':  return r.mixSubCat;
+          case 'mixFormato': return r.mixFormato;
+          case 'effPrezzo':  return r.effPrezzo;
+          case 'effCosto':   return r.effCosto;
+          case 'mPct2':      return r.line.marginPct2Raw ?? -Infinity;
+          default:           return 0;
+        }
+      };
+      cmp = v(a) - v(b);
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  }), [filtered, sortKey, sortDir]);
+
+  const handleSort = (col: ScompSortKey) => {
+    if (sortKey === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(col); setSortDir('desc'); }
+  };
+
+  const sTh = (col: ScompSortKey, label: string, align: 'left' | 'right' = 'right') => {
+    const active = sortKey === col;
+    return (
+      <th
+        key={col}
+        onClick={() => handleSort(col)}
+        className={`px-3 py-2.5 text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}
+      >
+        {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+      </th>
+    );
+  };
+
+  const ppTd = (v: number) => (
+    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${clrPp(v)}`}>{fmtPp(v)}</td>
+  );
+
+  const totalMix = totals.mixBrand + totals.mixCat + totals.mixSubCat + totals.mixFormato;
+  const mixOk = Math.abs(totalMix      - effects.effMix)    < 1e-6;
+  const prOk  = Math.abs(totals.effPrezzo - effects.effPrezzo) < 1e-6;
+  const coOk  = Math.abs(totals.effCosto  - effects.effCosto)  < 1e-6;
+  const chk   = (ok: boolean) => (
+    <span className={`font-bold ml-1 ${ok ? 'text-emerald-600' : 'text-red-500'}`}>{ok ? '✓' : '⚠'}</span>
+  );
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Scomposizione Mix per Referenza</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Contributo additivo di ogni referenza agli effetti globali.
+            {' '}<strong className="text-slate-600">Mix Formato</strong> include il residuo intra-formato
+            (garantisce Σ 4 livelli Mix = Eff.Mix).
+          </p>
+        </div>
+        <input
+          type="text"
+          placeholder="Cerca codice / descrizione…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-60 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
+        />
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs" style={{ minWidth: 1300 }}>
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-100">
+              {sTh('codice',     'Codice / Descrizione', 'left')}
+              {sTh('mPct1',      'M% P1')}
+              {sTh('mixBrand',   'Mix Brand')}
+              {sTh('mixCat',     'Mix Categoria')}
+              {sTh('mixSubCat',  'Mix Sottocategoria')}
+              {sTh('mixFormato', 'Mix Formato')}
+              {sTh('effPrezzo',  'Eff. Prezzo')}
+              {sTh('effCosto',   'Eff. Costo')}
+              {sTh('mPct2',      'M% P2')}
+              <th className="px-3 py-2.5 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="px-6 py-8 text-center text-xs text-slate-400">Nessuna referenza trovata.</td>
+              </tr>
+            ) : sorted.map(r => (
+              <tr key={r.line.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
+                <td className="px-3 py-2">
+                  <div className="font-mono text-[9px] text-slate-400 leading-none">{r.line.codice}</div>
+                  <div className="text-slate-700 text-[10px] max-w-[200px] truncate mt-0.5" title={r.line.descrizione}>
+                    {r.line.descrizione || '—'}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {r.line.isOnlyP2
+                    ? <span className="text-slate-300 tabular-nums">N/D</span>
+                    : <span className="tabular-nums text-slate-600">{nd(r.line.marginPct1Raw, v => fmtPct(v * 100))}</span>}
+                </td>
+                {ppTd(r.mixBrand)}
+                {ppTd(r.mixCat)}
+                {ppTd(r.mixSubCat)}
+                {ppTd(r.mixFormato)}
+                {ppTd(r.effPrezzo)}
+                {ppTd(r.effCosto)}
+                <td className="px-3 py-2 text-right">
+                  {r.line.isOnlyP1
+                    ? <span className="text-slate-300 tabular-nums">N/D</span>
+                    : <span className="tabular-nums text-slate-600">{nd(r.line.marginPct2Raw, v => fmtPct(v * 100))}</span>}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  <PresenceBadge presence={r.line.presence} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
+              <td className="px-3 py-2.5 text-slate-700">
+                TOTALE
+                <div className="text-[9px] font-normal text-slate-400">Σ su tutte le referenze</div>
+              </td>
+              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtPct(effects.marginPctP1 * 100)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixBrand)}`}>{fmtPp(totals.mixBrand)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixCat)}`}>{fmtPp(totals.mixCat)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixSubCat)}`}>{fmtPp(totals.mixSubCat)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixFormato)}`}>{fmtPp(totals.mixFormato)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.effPrezzo)}`}>{fmtPp(totals.effPrezzo)}</td>
+              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.effCosto)}`}>{fmtPp(totals.effCosto)}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtPct(effects.marginPctP2 * 100)}</td>
+              <td />
+            </tr>
+            <tr className="bg-blue-50/40 text-[9px] text-slate-500 border-t border-blue-100">
+              <td className="px-3 py-1.5 text-slate-500 font-medium" colSpan={2}>Quadratura</td>
+              <td className="px-3 py-1.5 text-right" colSpan={4}>
+                Σ Mix = <strong>{fmtPp(totalMix)}</strong>
+                {' '}vs Eff.Mix = <strong>{fmtPp(effects.effMix)}</strong>
+                {chk(mixOk)}
+              </td>
+              <td className="px-3 py-1.5 text-right">
+                Σ = <strong>{fmtPp(totals.effPrezzo)}</strong>
+                {' '}vs <strong>{fmtPp(effects.effPrezzo)}</strong>
+                {chk(prOk)}
+              </td>
+              <td className="px-3 py-1.5 text-right">
+                Σ = <strong>{fmtPp(totals.effCosto)}</strong>
+                {' '}vs <strong>{fmtPp(effects.effCosto)}</strong>
+                {chk(coOk)}
+              </td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
@@ -1262,6 +1794,9 @@ export default function VarianceAnalysis() {
             {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
             <MixEffectBreakdown effects={effects} />
 
+            {/* ── Mix per Prodotto ──────────────────────────────────────────── */}
+            <MixPerProdotto effects={effects} />
+
             {/* ── Waterfall Charts ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <WaterfallChart
@@ -1616,6 +2151,9 @@ export default function VarianceAnalysis() {
                 totalRev2={effects.totalRev2}
               />
             )}
+
+            {/* ── Scomposizione Mix per Referenza ───────────────────────────────── */}
+            <ScompMixReferenzaTable effects={effects} />
           </>
         )}
 
