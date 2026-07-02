@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList, Cell,
+  Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts';
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
@@ -44,61 +44,6 @@ const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && i
 // 1. No lines skipped — products with empty dim field go to "N/D"
 // 2. No items cut off — groups beyond display limit are aggregated as "Altri"
 //    so that Σ visible bars = effMix always.
-
-function computeMixByDim(
-  effects: EffectsResult,
-  dim: 'brand' | 'categoria' | 'sottocategoria' | 'formato',
-  maxVisible = 10,
-): { name: string; value: number; isResidual?: boolean }[] {
-  const { lines, totalRevM, totalRev1: totalRevP1 } = effects;
-  if (totalRevM === 0 || totalRevP1 === 0) return [];
-
-  const map = new Map<string, number>();
-  for (const l of lines) {
-    const key = (l[dim] as string).trim() || 'N/D'; // never skip a line
-    const m1 = l.price1Effective > 0
-      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective
-      : 0;
-    const shareM  = (l.q2 * l.price1Effective) / totalRevM;
-    const shareP1 = (l.q1 * l.price1Effective) / totalRevP1;
-    const contrib = m1 * (shareM - shareP1) * 100; // pp
-    map.set(key, (map.get(key) ?? 0) + contrib);
-  }
-
-  const sorted = [...map.entries()].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-  const top  = sorted.slice(0, maxVisible);
-  const rest = sorted.slice(maxVisible);
-
-  const result: { name: string; value: number; isResidual?: boolean }[] =
-    top.map(([name, value]) => ({ name, value: +value.toFixed(3) }));
-
-  // Aggregate remaining groups so that Σ bars = effMix exactly
-  if (rest.length > 0) {
-    const residual = rest.reduce((s, [, v]) => s + v, 0);
-    result.push({ name: `Altri (${rest.length})`, value: +residual.toFixed(3), isResidual: true });
-  }
-
-  return result;
-}
-
-const MIX_DIMS: { key: 'brand' | 'categoria' | 'sottocategoria' | 'formato'; label: string }[] = [
-  { key: 'brand',          label: 'Brand' },
-  { key: 'categoria',      label: 'Categoria' },
-  { key: 'sottocategoria', label: 'Sottocategoria' },
-  { key: 'formato',        label: 'Formato' },
-];
-
-// Custom Y-axis tick: truncates long names to avoid wrapping
-function MixYTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) {
-  const text = payload?.value ?? '';
-  const maxLen = 17;
-  const display = text.length > maxLen ? text.slice(0, maxLen - 1) + '…' : text;
-  return (
-    <g transform={`translate(${x},${y})`}>
-      <text x={-6} y={0} dy={3} textAnchor="end" fontSize={9} fill="#64748b">{display}</text>
-    </g>
-  );
-}
 
 // ─── Level breakdown mini-table ───────────────────────────────────────────────
 
@@ -160,7 +105,6 @@ function LevelBreakdownTable({
 }
 
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
-  const effMixPp = effects.effMix * 100;
   const md = effects.mixDecomposition;
   const [openLevel, setOpenLevel] = useState<string | null>(null);
 
@@ -174,151 +118,42 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-      <div className="mb-4">
+      <div className="mb-3">
         <h4 className="text-sm font-semibold text-slate-700">Analisi Effetto Mix per Dimensione</h4>
+        <p className="text-[9px] text-slate-400 mt-0.5">Clicca un livello per vedere il dettaglio gruppi</p>
       </div>
-
-      {/* ── Scomposizione Sequenziale con breakdown per livello ──────── */}
-      <div className="flex gap-6 mb-6">
-        <div className="flex-none w-72">
-          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-            Scomposizione Effetto Mix
-          </p>
-          <p className="text-[9px] text-slate-400 mb-2">Clicca un livello per vedere il dettaglio gruppi</p>
-          <div className="border border-slate-200 rounded-xl overflow-hidden">
-            {seqLevels.map(({ key, label, value, breakdown }) => {
-              const isOpen = openLevel === key;
-              const hasBreakdown = breakdown.length > 1 || (breakdown.length === 1 && breakdown[0].name !== '_');
-              return (
-                <div key={key}>
-                  <div
-                    className={`flex items-center justify-between px-3 py-2 border-b border-slate-100 text-xs transition-colors ${hasBreakdown ? 'cursor-pointer hover:bg-slate-50' : ''} ${isOpen ? 'bg-blue-50' : ''}`}
-                    onClick={() => hasBreakdown ? setOpenLevel(isOpen ? null : key) : undefined}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {hasBreakdown && (
-                        isOpen
-                          ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                          : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                      )}
-                      <span className="text-slate-600">{label}</span>
-                    </div>
-                    <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
-                  </div>
-                  {isOpen && (
-                    <div className="px-3 py-2 bg-blue-50/50 border-b border-slate-100">
-                      <LevelBreakdownTable groups={breakdown} levelEffect={value} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-              <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
-              <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
-            </div>
-          </div>
-          <p className="text-[9px] text-slate-400 mt-1.5 leading-relaxed">
-            La somma delle componenti coincide con l'Effetto Mix Totale. I contributi per gruppo sono additivi a ogni livello.
-          </p>
-        </div>
-        <div className="flex-1 self-start space-y-2">
-          <p className="text-xs text-slate-500 leading-relaxed">
-            La scomposizione <strong className="text-slate-600">sequenziale</strong> decompone l'Effetto Mix{' '}
-            <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
-              {fmtPp(effects.effMix)}
-            </span>{' '}
-            per livello gerarchico (Brand → Categoria → Sottocategoria → Formato). Ogni riga mostra il contributo <strong className="text-slate-600">marginale</strong> del livello aggiuntivo, mantenendo P1 come riferimento. Il Residuo cattura le variazioni a livello singola referenza.
-          </p>
-          <p className="text-[10px] text-slate-400">
-            I 4 grafici a destra mostrano invece viste <strong>indipendenti</strong> — ognuno spiega l'intero effetto Mix da una sola dimensione.
-          </p>
-        </div>
-      </div>
-
-      {/* ── 4 grafici indipendenti per dimensione ────────────────────── */}
-      <div className="border-t border-slate-100 pt-4">
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Vista Indipendente per Dimensione</p>
-        <p className="text-xs text-slate-400 mb-4">
-          Ogni dimensione è una vista <strong className="text-slate-500">indipendente</strong> e completa —
-          la somma delle barre di ciascun grafico = effMix totale{' '}
-          <span className={effects.effMix >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold'}>
-            {fmtPp(effects.effMix)}
-          </span>
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
-        {MIX_DIMS.map(({ key, label }) => {
-          const data = computeMixByDim(effects, key);
-          // Verify: sum of all bars should equal effMixPp exactly
-          const barSum = data.reduce((s, d) => s + d.value, 0);
-          const diffPp = Math.abs(barSum - effMixPp);
-          const isExact = diffPp < 0.01;
-
+      <div className="border border-slate-200 rounded-xl overflow-hidden">
+        {seqLevels.map(({ key, label, value, breakdown }) => {
+          const isOpen = openLevel === key;
+          const hasBreakdown = breakdown.length > 1 || (breakdown.length === 1 && breakdown[0].name !== '_');
           return (
             <div key={key}>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</p>
-                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${isExact ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                  {isExact ? '∑ = 100% ✓' : `∑ diff ${diffPp.toFixed(2)}pp ⚠`}
-                </span>
-              </div>
-              {data.length === 0 ? (
-                <div className="flex items-center justify-center h-28 text-xs text-slate-300 border border-dashed border-slate-200 rounded-xl">
-                  Nessun dato disponibile
+              <div
+                className={`flex items-center justify-between px-3 py-2.5 border-b border-slate-100 text-xs transition-colors ${hasBreakdown ? 'cursor-pointer hover:bg-slate-50' : ''} ${isOpen ? 'bg-blue-50' : ''}`}
+                onClick={() => hasBreakdown ? setOpenLevel(isOpen ? null : key) : undefined}
+              >
+                <div className="flex items-center gap-1.5">
+                  {hasBreakdown && (
+                    isOpen
+                      ? <ChevronDown  className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                      : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                  )}
+                  <span className="text-slate-600">{label}</span>
                 </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={data.length * 28 + 16}>
-                  <BarChart data={data} layout="vertical" margin={{ top: 2, right: 58, left: 4, bottom: 2 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tick={{ fontSize: 8, fill: '#94a3b8' }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={v => `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}`}
-                    />
-                    <YAxis
-                      type="category" dataKey="name"
-                      tick={<MixYTick />}
-                      axisLine={false} tickLine={false} width={118}
-                      interval={0}
-                    />
-                    <Tooltip
-                      formatter={(v: unknown) => [
-                        `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)} pp`, 'Effetto Mix',
-                      ]}
-                      contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e2e8f0' }}
-                    />
-                    <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false} maxBarSize={14}>
-                      {data.map((d, i) => (
-                        <Cell
-                          key={i}
-                          fill={d.isResidual ? '#94a3b8' : d.value >= 0 ? '#10b981' : '#f87171'}
-                          opacity={d.isResidual ? 0.7 : 1}
-                        />
-                      ))}
-                      <LabelList
-                        dataKey="value"
-                        position="right"
-                        content={({ x, y, width, height, value, index }: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; value?: unknown; index?: number }) => {
-                          const v = Number(value);
-                          const isRes = data[index as number]?.isResidual;
-                          const cx = +(x ?? 0) + +(width ?? 0) + 4;
-                          const cy = +(y ?? 0) + +(height ?? 0) / 2 + 3.5;
-                          return (
-                            <text x={cx} y={cy} fontSize={8} fill={isRes ? '#94a3b8' : v >= 0 ? '#059669' : '#ef4444'} fontWeight={600}>
-                              {`${v >= 0 ? '+' : ''}${v.toFixed(2)}pp`}
-                            </text>
-                          );
-                        }}
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
+              </div>
+              {isOpen && (
+                <div className="px-3 py-2 bg-blue-50/50 border-b border-slate-100">
+                  <LevelBreakdownTable groups={breakdown} levelEffect={value} />
+                </div>
               )}
             </div>
           );
         })}
+        <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+          <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
+          <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
+        </div>
       </div>
     </div>
   );
