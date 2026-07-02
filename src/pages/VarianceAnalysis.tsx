@@ -18,7 +18,7 @@ import {
 } from '../lib/varianceAnalysis';
 import type {
   VarRow, FilterDim,
-  ComparedLine, TableGroup, WaterfallPoint, EffectsResult, AIInsight, MixLevelGroup,
+  ComparedLine, TableGroup, WaterfallPoint, EffectsResult, AIInsight,
 } from '../lib/varianceAnalysis';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -45,111 +45,27 @@ const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && i
 // 2. No items cut off — groups beyond display limit are aggregated as "Altri"
 //    so that Σ visible bars = effMix always.
 
-// ─── Level breakdown mini-table ───────────────────────────────────────────────
-
-function LevelBreakdownTable({
-  groups, levelEffect, maxVisible = 8,
-}: {
-  groups: MixLevelGroup[];
-  levelEffect: number;
-  maxVisible?: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? groups : groups.slice(0, maxVisible);
-  const hidden  = groups.length - maxVisible;
-
-  return (
-    <div className="border border-slate-100 rounded-xl overflow-hidden text-[10px]">
-      <div className="bg-slate-50 grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wide border-b border-slate-100">
-        <span>Gruppo</span>
-        <span className="text-right">Contributo</span>
-        <span className="text-right w-14">% su livello</span>
-      </div>
-      {visible.map(({ name, contribution }) => {
-        const pct = levelEffect !== 0 ? (contribution / levelEffect * 100) : 0;
-        return (
-          <div key={name} className="grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 border-b border-slate-50 hover:bg-slate-50/60 items-center">
-            <span className="text-slate-600 truncate" title={name}>{name}</span>
-            <span className={`font-semibold tabular-nums ${clrPp(contribution)}`}>
-              {fmtPp(contribution)}
-            </span>
-            <span className={`text-right w-14 tabular-nums ${clrPp(contribution)}`}>
-              {pct >= 0 ? '+' : ''}{pct.toFixed(0)}%
-            </span>
-          </div>
-        );
-      })}
-      {!expanded && hidden > 0 && (
-        <button
-          onClick={() => setExpanded(true)}
-          className="w-full px-3 py-1.5 text-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-t border-slate-100"
-        >
-          +{hidden} altri…
-        </button>
-      )}
-      {expanded && groups.length > maxVisible && (
-        <button
-          onClick={() => setExpanded(false)}
-          className="w-full px-3 py-1.5 text-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border-t border-slate-100"
-        >
-          Mostra meno
-        </button>
-      )}
-      <div className={`grid grid-cols-[1fr_auto_auto] gap-x-3 px-3 py-1.5 border-t-2 border-slate-300 ${levelEffect >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-        <span className="font-bold text-slate-700">TOTALE LIVELLO</span>
-        <span className={`font-bold tabular-nums ${clrPp(levelEffect)}`}>{fmtPp(levelEffect)}</span>
-        <span className="w-14 text-right text-slate-400">100%</span>
-      </div>
-    </div>
-  );
-}
-
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   const md = effects.mixDecomposition;
-  const [openLevel, setOpenLevel] = useState<string | null>(null);
 
-  const seqLevels: { key: string; label: string; value: number; breakdown: MixLevelGroup[] }[] = [
-    { key: 'brand',          label: 'Mix Brand',          value: md.brand,          breakdown: md.brandBreakdown },
-    { key: 'categoria',      label: 'Mix Categoria',      value: md.categoria,      breakdown: md.categoriaBreakdown },
-    { key: 'sottocategoria', label: 'Mix Sottocategoria', value: md.sottocategoria, breakdown: md.sottocategoriaBreakdown },
-    { key: 'formato',        label: 'Mix Formato',        value: md.formato,        breakdown: md.formatoBreakdown },
-    { key: 'residuo',        label: 'Residuo (referenze)',value: md.residuo,        breakdown: md.productBreakdown },
+  const rows = [
+    { label: 'Mix Brand',          value: md.brand          },
+    { label: 'Mix Categoria',      value: md.categoria      },
+    { label: 'Mix Sottocategoria', value: md.sottocategoria },
+    { label: 'Mix Formato',        value: md.formato        },
+    { label: 'Residuo (referenze)',value: md.residuo        },
   ];
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-      <div className="mb-3">
-        <h4 className="text-sm font-semibold text-slate-700">Analisi Effetto Mix per Dimensione</h4>
-        <p className="text-[9px] text-slate-400 mt-0.5">Clicca un livello per vedere il dettaglio gruppi</p>
-      </div>
+      <h4 className="text-sm font-semibold text-slate-700 mb-3">Analisi Effetto Mix per Dimensione</h4>
       <div className="border border-slate-200 rounded-xl overflow-hidden">
-        {seqLevels.map(({ key, label, value, breakdown }) => {
-          const isOpen = openLevel === key;
-          const hasBreakdown = breakdown.length > 1 || (breakdown.length === 1 && breakdown[0].name !== '_');
-          return (
-            <div key={key}>
-              <div
-                className={`flex items-center justify-between px-3 py-2.5 border-b border-slate-100 text-xs transition-colors ${hasBreakdown ? 'cursor-pointer hover:bg-slate-50' : ''} ${isOpen ? 'bg-blue-50' : ''}`}
-                onClick={() => hasBreakdown ? setOpenLevel(isOpen ? null : key) : undefined}
-              >
-                <div className="flex items-center gap-1.5">
-                  {hasBreakdown && (
-                    isOpen
-                      ? <ChevronDown  className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                      : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                  )}
-                  <span className="text-slate-600">{label}</span>
-                </div>
-                <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
-              </div>
-              {isOpen && (
-                <div className="px-3 py-2 bg-blue-50/50 border-b border-slate-100">
-                  <LevelBreakdownTable groups={breakdown} levelEffect={value} />
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100 text-xs">
+            <span className="text-slate-600">{label}</span>
+            <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
+          </div>
+        ))}
         <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
           <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
           <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
