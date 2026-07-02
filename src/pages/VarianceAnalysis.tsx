@@ -324,154 +324,326 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   );
 }
 
-// ─── Mix per Prodotto table ───────────────────────────────────────────────────
+// ─── 3-Level Hierarchical Mix Table ──────────────────────────────────────────
 
-function MixPerProdotto({ effects }: { effects: EffectsResult }) {
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<'contrib' | 'mixDelta' | 'name'>('contrib');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+interface ReferenzaNode {
+  line: ComparedLine;
+  effPrezzo: number;
+  effCosto: number;
+}
 
-  const { lines, totalRev1, totalRev2, totalRevM } = effects;
-  const Q1 = lines.reduce((s, l) => s + l.q1, 0);
-  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
+interface BrandNode {
+  brand: string;
+  mixContrib: number;       // decimal (0.012 = 1.2 pp)
+  marginPct1: number | null;
+  marginPct2: number | null;
+  referenze: ReferenzaNode[];
+}
 
-  const rows = useMemo(() => lines.map(l => {
-    const mixVolP1 = Q1 > 0 ? l.q1 / Q1 : 0;
-    const mixVolP2 = Q2 > 0 ? l.q2 / Q2 : 0;
-    const mixRevP1 = totalRev1 > 0 ? l.rev1 / totalRev1 : 0;
-    const mixRevP2 = totalRev2 > 0 ? l.rev2 / totalRev2 : 0;
-    const m1 = l.price1Effective > 0
-      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective
-      : 0;
-    const shareM  = totalRevM > 0 ? (l.q2 * l.price1Effective) / totalRevM : 0;
-    const shareP1 = totalRev1 > 0 ? (l.q1 * l.price1Effective) / totalRev1 : 0;
-    const contrib = m1 * (shareM - shareP1); // decimal pp
-    return { line: l, mixVolP1, mixVolP2, mixRevP1, mixRevP2, contrib };
-  }), [lines, Q1, Q2, totalRev1, totalRev2, totalRevM]);
+interface CategoriaNode {
+  categoria: string;
+  mixContrib: number;
+  marginPct1: number | null;
+  marginPct2: number | null;
+  brands: BrandNode[];
+}
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return rows;
-    return rows.filter(r =>
-      r.line.descrizione.toLowerCase().includes(q) ||
-      r.line.codice.toLowerCase().includes(q) ||
-      r.line.brand.toLowerCase().includes(q) ||
-      r.line.categoria.toLowerCase().includes(q),
-    );
-  }, [rows, search]);
+function buildHierarchicalMixData(effects: EffectsResult): CategoriaNode[] {
+  const { lines, totalRevM, totalRev1, totalRev2 } = effects;
 
-  const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      let cmp: number;
-      if (sortBy === 'contrib')  cmp = Math.abs(b.contrib)  - Math.abs(a.contrib);
-      else if (sortBy === 'mixDelta') cmp = Math.abs(b.mixVolP2 - b.mixVolP1) - Math.abs(a.mixVolP2 - a.mixVolP1);
-      else cmp = (a.line.descrizione || a.line.codice).localeCompare(b.line.descrizione || b.line.codice);
-      return sortDir === 'desc' ? cmp : -cmp;
-    });
-  }, [filtered, sortBy, sortDir]);
-
-  const toggleSort = (col: typeof sortBy) => {
-    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortBy(col); setSortDir('desc'); }
+  type BrandBucket = {
+    rev1: number; cost1: number; rev2: number; cost2: number;
+    mixContrib: number; referenze: ReferenzaNode[];
   };
 
-  const totalContrib = rows.reduce((s, r) => s + r.contrib, 0);
+  const catMap = new Map<string, {
+    rev1: number; cost1: number; rev2: number; cost2: number;
+    mixContrib: number;
+    brands: Map<string, BrandBucket>;
+  }>();
+
+  for (const l of lines) {
+    const cat   = l.categoria.trim() || 'N/D';
+    const brand = l.brand.trim()     || 'N/D';
+
+    const m1 = l.price1Effective > 0
+      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective : 0;
+    const shareM  = totalRevM  > 0 ? (l.q2 * l.price1Effective) / totalRevM  : 0;
+    const shareP1 = totalRev1  > 0 ? (l.q1 * l.price1Effective) / totalRev1  : 0;
+    const mixC = m1 * (shareM - shareP1);
+
+    const cvM = l.q2 * l.unitCost1Effective;
+    const rvM = l.q2 * l.price1Effective;
+    const mc  = (margin: number, rev: number) => rev > 0 ? margin / rev : 0;
+    const effPrezzo = mc(l.rev2 - cvM, totalRev2) - mc(rvM - cvM, totalRevM);
+    const effCosto  = mc(l.rev2 - l.cost2, totalRev2) - mc(l.rev2 - cvM, totalRev2);
+
+    if (!catMap.has(cat)) {
+      catMap.set(cat, { rev1: 0, cost1: 0, rev2: 0, cost2: 0, mixContrib: 0, brands: new Map() });
+    }
+    const cd = catMap.get(cat)!;
+    cd.rev1 += l.rev1; cd.cost1 += l.cost1;
+    cd.rev2 += l.rev2; cd.cost2 += l.cost2;
+    cd.mixContrib += mixC;
+
+    if (!cd.brands.has(brand)) {
+      cd.brands.set(brand, { rev1: 0, cost1: 0, rev2: 0, cost2: 0, mixContrib: 0, referenze: [] });
+    }
+    const bd = cd.brands.get(brand)!;
+    bd.rev1 += l.rev1; bd.cost1 += l.cost1;
+    bd.rev2 += l.rev2; bd.cost2 += l.cost2;
+    bd.mixContrib += mixC;
+    bd.referenze.push({ line: l, effPrezzo, effCosto });
+  }
+
+  const nodes: CategoriaNode[] = [];
+  for (const [cat, cd] of catMap.entries()) {
+    const brands: BrandNode[] = [];
+    for (const [brand, bd] of cd.brands.entries()) {
+      brands.push({
+        brand,
+        mixContrib: bd.mixContrib,
+        marginPct1: bd.rev1 > 0 ? (bd.rev1 - bd.cost1) / bd.rev1 : null,
+        marginPct2: bd.rev2 > 0 ? (bd.rev2 - bd.cost2) / bd.rev2 : null,
+        referenze: bd.referenze.sort(
+          (a, b) => Math.abs(b.effPrezzo + b.effCosto) - Math.abs(a.effPrezzo + a.effCosto),
+        ),
+      });
+    }
+    brands.sort((a, b) => Math.abs(b.mixContrib) - Math.abs(a.mixContrib));
+    nodes.push({
+      categoria: cat,
+      mixContrib: cd.mixContrib,
+      marginPct1: cd.rev1 > 0 ? (cd.rev1 - cd.cost1) / cd.rev1 : null,
+      marginPct2: cd.rev2 > 0 ? (cd.rev2 - cd.cost2) / cd.rev2 : null,
+      brands,
+    });
+  }
+  return nodes.sort((a, b) => Math.abs(b.mixContrib) - Math.abs(a.mixContrib));
+}
+
+// Level 3 — referenza rows (inside brand expansion)
+function BrandRow({
+  node, brandKey, expanded, onToggle,
+}: {
+  node: BrandNode; brandKey: string; expanded: boolean; onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+        onClick={onToggle}
+      >
+        <td className="px-4 py-2.5 text-xs font-medium text-slate-700">
+          <div className="flex items-center gap-1.5">
+            {expanded
+              ? <ChevronDown  className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
+            }
+            {node.brand}
+          </div>
+        </td>
+        <td className={`px-4 py-2.5 text-xs text-right tabular-nums font-semibold ${clrPp(node.mixContrib)}`}>
+          {fmtPp(node.mixContrib)}
+        </td>
+        <td className="px-4 py-2.5 text-xs text-right tabular-nums text-slate-600">
+          {nd(node.marginPct1, v => fmtPct(v * 100))}
+        </td>
+        <td className="px-4 py-2.5 text-xs text-right tabular-nums text-slate-600">
+          {nd(node.marginPct2, v => fmtPct(v * 100))}
+        </td>
+      </tr>
+      {expanded && (
+        <tr key={`${brandKey}-ref`}>
+          <td colSpan={4} className="p-0 bg-white">
+            <div className="ml-6 border-l-2 border-blue-100">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-blue-50/60 border-b border-blue-100">
+                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Codice</th>
+                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Descrizione</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Eff. Prezzo</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Eff. Costo</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
+                    <th className="px-4 py-2 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {node.referenze.map(({ line: l, effPrezzo, effCosto }) => (
+                    <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors text-xs">
+                      <td className="px-4 py-2 font-mono text-[9px] text-slate-400 whitespace-nowrap">{l.codice}</td>
+                      <td className="px-4 py-2 text-slate-600 max-w-[220px] truncate" title={l.descrizione}>
+                        {l.descrizione || '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                        {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
+                      </td>
+                      <td className={`px-4 py-2 text-right tabular-nums font-semibold ${l.presence === 'both' ? clrPp(effPrezzo) : 'text-slate-300'}`}>
+                        {l.presence === 'both' ? fmtPp(effPrezzo) : '—'}
+                      </td>
+                      <td className={`px-4 py-2 text-right tabular-nums font-semibold ${l.presence === 'both' ? clrPp(effCosto) : 'text-slate-300'}`}>
+                        {l.presence === 'both' ? fmtPp(effCosto) : '—'}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                        {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <PresenceBadge presence={l.presence} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// Level 2 — brand rows with nested referenze (inside categoria expansion)
+function CategoriaRow({
+  node, expanded, onToggle, expandedBrands, onToggleBrand,
+}: {
+  node: CategoriaNode;
+  expanded: boolean;
+  onToggle: () => void;
+  expandedBrands: Set<string>;
+  onToggleBrand: (key: string) => void;
+}) {
+  return (
+    <>
+      <tr
+        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3 text-xs font-semibold text-slate-800">
+          <div className="flex items-center gap-1.5">
+            {expanded
+              ? <ChevronDown  className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+            }
+            {node.categoria}
+            <span className="text-[10px] font-normal text-slate-400 ml-1">{node.brands.length} brand</span>
+          </div>
+        </td>
+        <td className={`px-4 py-3 text-xs text-right tabular-nums font-bold ${clrPp(node.mixContrib)}`}>
+          {fmtPp(node.mixContrib)}
+        </td>
+        <td className="px-4 py-3 text-xs text-right tabular-nums text-slate-700">
+          {nd(node.marginPct1, v => fmtPct(v * 100))}
+        </td>
+        <td className="px-4 py-3 text-xs text-right tabular-nums text-slate-700">
+          {nd(node.marginPct2, v => fmtPct(v * 100))}
+        </td>
+      </tr>
+      {expanded && (
+        <tr key={`${node.categoria}-brands`} className="border-b border-slate-200">
+          <td colSpan={4} className="p-0 bg-slate-50/40">
+            <div className="ml-4 border-l-2 border-slate-300">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200">
+                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Brand</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Contributo Mix Brand</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
+                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {node.brands.map(brand => {
+                    const bk = `${node.categoria}||${brand.brand}`;
+                    return (
+                      <BrandRow
+                        key={bk}
+                        node={brand}
+                        brandKey={bk}
+                        expanded={expandedBrands.has(bk)}
+                        onToggle={() => onToggleBrand(bk)}
+                      />
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className={`border-t-2 border-slate-300 text-xs font-bold ${node.mixContrib >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+                    <td className="px-4 py-2 text-slate-700">Σ {node.categoria}</td>
+                    <td className={`px-4 py-2 text-right tabular-nums ${clrPp(node.mixContrib)}`}>{fmtPp(node.mixContrib)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">{nd(node.marginPct1, v => fmtPct(v * 100))}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">{nd(node.marginPct2, v => fmtPct(v * 100))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function HierarchicalMixTable({ effects }: { effects: EffectsResult }) {
+  const [expandedCats,   setExpandedCats]   = useState<Set<string>>(new Set());
+  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
+
+  const data = useMemo(() => buildHierarchicalMixData(effects), [effects]);
+  const totalMixContrib = data.reduce((s, c) => s + c.mixContrib, 0);
+
+  const toggleCat = (cat: string) => setExpandedCats(prev => {
+    const s = new Set(prev); s.has(cat) ? s.delete(cat) : s.add(cat); return s;
+  });
+  const toggleBrand = (key: string) => setExpandedBrands(prev => {
+    const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s;
+  });
+
+  const balanceOk = Math.abs(totalMixContrib - effects.effMix) < 1e-6;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">Mix per Prodotto</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Quota di mix volume e ricavi per ogni referenza — Contributo a Eff. Mix = Σ ={' '}
-            <span className={`font-semibold ${clrPp(totalContrib)}`}>{fmtPp(totalContrib)}</span>
-          </p>
-        </div>
-        <input
-          type="text"
-          placeholder="Cerca prodotto, brand, categoria…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
-        />
+      <div className="px-6 py-4 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-800">Scomposizione Mix Gerarchica</h3>
+        <p className="text-xs text-slate-400 mt-0.5">
+          L1: Categoria · L2: Brand (espandi ▶) · L3: Referenza con Eff. Prezzo e Eff. Costo (solo effetti reali sulla singola referenza)
+        </p>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs" style={{ minWidth: 1100 }}>
+        <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100">
-              <th
-                className="px-4 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
-                onClick={() => toggleSort('name')}
-              >
-                Prodotto {sortBy === 'name' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-              </th>
-              <th className="px-3 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Brand</th>
-              <th className="px-3 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Categoria</th>
-              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Vol P1%</th>
-              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Rev P1%</th>
-              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Vol P2%</th>
-              <th className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Mix Rev P2%</th>
-              <th
-                className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
-                onClick={() => toggleSort('mixDelta')}
-              >
-                Δ Mix Vol {sortBy === 'mixDelta' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-              </th>
-              <th
-                className="px-3 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer hover:text-slate-600 select-none"
-                onClick={() => toggleSort('contrib')}
-              >
-                Contributo Eff.Mix {sortBy === 'contrib' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-              </th>
-              <th className="px-3 py-2.5 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
+              <th className="px-4 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Categoria</th>
+              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Contributo Mix Categoria</th>
+              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
+              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-6 py-8 text-center text-xs text-slate-400">Nessuna referenza trovata.</td>
-              </tr>
-            ) : sorted.map(({ line: l, mixVolP1, mixVolP2, mixRevP1, mixRevP2, contrib }) => {
-              const dVol = mixVolP2 - mixVolP1;
-              return (
-                <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                  <td className="px-4 py-2">
-                    <div className="font-mono text-[9px] text-slate-400">{l.codice}</div>
-                    <div className="text-slate-700 max-w-[200px] truncate text-[10px]" title={l.descrizione}>{l.descrizione || '—'}</div>
-                  </td>
-                  <td className="px-3 py-2 text-slate-600 text-[10px]">{l.brand || '—'}</td>
-                  <td className="px-3 py-2 text-slate-500 text-[10px]">{l.categoria || '—'}</td>
-                  <td className="px-3 py-2 tabular-nums text-right text-slate-600">
-                    {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : `${(mixVolP1 * 100).toFixed(2)}%`}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-right text-slate-500">
-                    {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : `${(mixRevP1 * 100).toFixed(2)}%`}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-right text-slate-600">
-                    {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : `${(mixVolP2 * 100).toFixed(2)}%`}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-right text-slate-500">
-                    {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : `${(mixRevP2 * 100).toFixed(2)}%`}
-                  </td>
-                  <td className={`px-3 py-2 tabular-nums text-right font-medium ${clrPp(dVol)}`}>
-                    {l.presence === 'both' ? `${dVol >= 0 ? '+' : ''}${(dVol * 100).toFixed(2)} pp` : '—'}
-                  </td>
-                  <td className={`px-3 py-2 tabular-nums text-right font-semibold ${clrPp(contrib)}`}>
-                    {fmtPp(contrib)}
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <PresenceBadge presence={l.presence} />
-                  </td>
-                </tr>
-              );
-            })}
+            {data.map(cat => (
+              <CategoriaRow
+                key={cat.categoria}
+                node={cat}
+                expanded={expandedCats.has(cat.categoria)}
+                onToggle={() => toggleCat(cat.categoria)}
+                expandedBrands={expandedBrands}
+                onToggleBrand={toggleBrand}
+              />
+            ))}
           </tbody>
           <tfoot>
-            <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
-              <td className="px-4 py-2.5 text-slate-700" colSpan={7}>TOTALE</td>
-              <td className="px-3 py-2.5 tabular-nums text-right text-slate-400">—</td>
-              <td className={`px-3 py-2.5 tabular-nums text-right ${clrPp(totalContrib)}`}>{fmtPp(totalContrib)}</td>
-              <td />
+            <tr className={`border-t-2 border-slate-300 text-xs font-bold ${totalMixContrib >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+              <td className="px-4 py-2.5 text-slate-800">TOTALE MIX</td>
+              <td className={`px-4 py-2.5 text-right tabular-nums ${clrPp(totalMixContrib)}`}>{fmtPp(totalMixContrib)}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{fmtPct(effects.marginPctP1 * 100)}</td>
+              <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{fmtPct(effects.marginPctP2 * 100)}</td>
+            </tr>
+            <tr className="bg-blue-50/40 text-[9px] border-t border-blue-100">
+              <td colSpan={4} className="px-4 py-1.5 text-slate-500">
+                Σ Mix Categoria = {fmtPp(totalMixContrib)} · Eff. Mix totale = {fmtPp(effects.effMix)}{' '}
+                {balanceOk
+                  ? <span className="text-emerald-600 font-bold">✓</span>
+                  : <span className="text-red-500 font-bold">⚠ diff {((totalMixContrib - effects.effMix) * 100).toFixed(4)} pp</span>
+                }
+              </td>
             </tr>
           </tfoot>
         </table>
@@ -1178,248 +1350,7 @@ function TechnicalCalcTable({
   );
 }
 
-// ─── Scomposizione Mix per Referenza ─────────────────────────────────────────
 
-interface PerLineMixRow {
-  line:       ComparedLine;
-  mixBrand:   number;  // pp (decimal) — contribution to Brand level effect (V→Brand)
-  mixCat:     number;  // pp — marginal contribution (Brand→Categoria)
-  mixSubCat:  number;  // pp — marginal contribution (Categoria→Sottocategoria)
-  mixFormato: number;  // pp — Sottocategoria→M, absorbs residuo so Σ 4 cols = effMix
-  effPrezzo:  number;  // pp — per-line contribution to Effetto Prezzo (M→P)
-  effCosto:   number;  // pp — per-line contribution to Effetto Costo (P→C)
-}
-
-function buildPerLineMixRows(effects: EffectsResult): PerLineMixRow[] {
-  const { lines, totalRevM, totalRev2 } = effects;
-  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
-
-  // Scenario-level revenue/cost totals (denominators for the additive attribution)
-  let rV = 0, cV = 0, rB = 0, cB = 0, rC = 0, cC = 0, rS = 0, cS = 0;
-  for (const l of lines) {
-    const qV = Q2 * l.mix1;
-    rV += qV                * l.price1Effective;   cV += qV                * l.unitCost1Effective;
-    rB += (l.qMixBrand  ?? 0) * l.price1Effective;  cB += (l.qMixBrand  ?? 0) * l.unitCost1Effective;
-    rC += (l.qMixCat    ?? 0) * l.price1Effective;  cC += (l.qMixCat    ?? 0) * l.unitCost1Effective;
-    rS += (l.qMixSubCat ?? 0) * l.price1Effective;  cS += (l.qMixSubCat ?? 0) * l.unitCost1Effective;
-  }
-
-  // margin_contribution(group) / totalRev  →  additive: Σ_i = marginPct_scenario
-  const mc = (margin: number, rev: number) => rev > 0 ? margin / rev : 0;
-
-  return lines.map(l => {
-    const qV  = Q2 * l.mix1;
-    const rvV = qV                * l.price1Effective;   const cvV = qV                * l.unitCost1Effective;
-    const rvB = (l.qMixBrand  ?? 0) * l.price1Effective;  const cvB = (l.qMixBrand  ?? 0) * l.unitCost1Effective;
-    const rvC = (l.qMixCat    ?? 0) * l.price1Effective;  const cvC = (l.qMixCat    ?? 0) * l.unitCost1Effective;
-    const rvS = (l.qMixSubCat ?? 0) * l.price1Effective;  const cvS = (l.qMixSubCat ?? 0) * l.unitCost1Effective;
-    const rvM = l.q2 * l.price1Effective;                  const cvM = l.q2 * l.unitCost1Effective;
-
-    return {
-      line: l,
-      mixBrand:   mc(rvB - cvB, rB) - mc(rvV - cvV, rV),
-      mixCat:     mc(rvC - cvC, rC) - mc(rvB - cvB, rB),
-      mixSubCat:  mc(rvS - cvS, rS) - mc(rvC - cvC, rC),
-      mixFormato: mc(rvM - cvM, totalRevM) - mc(rvS - cvS, rS),  // absorbs residuo
-      effPrezzo:  mc(l.rev2 - cvM, totalRev2) - mc(rvM - cvM, totalRevM),
-      effCosto:   mc(l.rev2 - l.cost2, totalRev2) - mc(l.rev2 - cvM, totalRev2),
-    };
-  });
-}
-
-type ScompSortKey =
-  | 'codice' | 'mPct1' | 'mixBrand' | 'mixCat' | 'mixSubCat'
-  | 'mixFormato' | 'effPrezzo' | 'effCosto' | 'mPct2';
-
-function ScompMixReferenzaTable({ effects }: { effects: EffectsResult }) {
-  const [search,  setSearch]  = useState('');
-  const [sortKey, setSortKey] = useState<ScompSortKey>('mixBrand');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  const rows = useMemo(() => buildPerLineMixRows(effects), [effects]);
-
-  const totals = useMemo(() => ({
-    mixBrand:   rows.reduce((s, r) => s + r.mixBrand,   0),
-    mixCat:     rows.reduce((s, r) => s + r.mixCat,     0),
-    mixSubCat:  rows.reduce((s, r) => s + r.mixSubCat,  0),
-    mixFormato: rows.reduce((s, r) => s + r.mixFormato, 0),
-    effPrezzo:  rows.reduce((s, r) => s + r.effPrezzo,  0),
-    effCosto:   rows.reduce((s, r) => s + r.effCosto,   0),
-  }), [rows]);
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return rows;
-    return rows.filter(r =>
-      r.line.codice.toLowerCase().includes(q) || r.line.descrizione.toLowerCase().includes(q),
-    );
-  }, [rows, search]);
-
-  const sorted = useMemo(() => [...filtered].sort((a, b) => {
-    let cmp: number;
-    if (sortKey === 'codice') {
-      cmp = (a.line.codice || '').localeCompare(b.line.codice || '');
-    } else {
-      const v = (r: PerLineMixRow): number => {
-        switch (sortKey) {
-          case 'mPct1':      return r.line.marginPct1Raw ?? -Infinity;
-          case 'mixBrand':   return r.mixBrand;
-          case 'mixCat':     return r.mixCat;
-          case 'mixSubCat':  return r.mixSubCat;
-          case 'mixFormato': return r.mixFormato;
-          case 'effPrezzo':  return r.effPrezzo;
-          case 'effCosto':   return r.effCosto;
-          case 'mPct2':      return r.line.marginPct2Raw ?? -Infinity;
-          default:           return 0;
-        }
-      };
-      cmp = v(a) - v(b);
-    }
-    return sortDir === 'asc' ? cmp : -cmp;
-  }), [filtered, sortKey, sortDir]);
-
-  const handleSort = (col: ScompSortKey) => {
-    if (sortKey === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(col); setSortDir('desc'); }
-  };
-
-  const sTh = (col: ScompSortKey, label: string, align: 'left' | 'right' = 'right') => {
-    const active = sortKey === col;
-    return (
-      <th
-        key={col}
-        onClick={() => handleSort(col)}
-        className={`px-3 py-2.5 text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}
-      >
-        {label}{active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
-      </th>
-    );
-  };
-
-  const ppTd = (v: number) => (
-    <td className={`px-3 py-2 text-right tabular-nums font-semibold ${clrPp(v)}`}>{fmtPp(v)}</td>
-  );
-
-  const totalMix = totals.mixBrand + totals.mixCat + totals.mixSubCat + totals.mixFormato;
-  const mixOk = Math.abs(totalMix      - effects.effMix)    < 1e-6;
-  const prOk  = Math.abs(totals.effPrezzo - effects.effPrezzo) < 1e-6;
-  const coOk  = Math.abs(totals.effCosto  - effects.effCosto)  < 1e-6;
-  const chk   = (ok: boolean) => (
-    <span className={`font-bold ml-1 ${ok ? 'text-emerald-600' : 'text-red-500'}`}>{ok ? '✓' : '⚠'}</span>
-  );
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">Scomposizione Mix per Referenza</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Contributo additivo di ogni referenza agli effetti globali.
-            {' '}<strong className="text-slate-600">Mix Formato</strong> include il residuo intra-formato
-            (garantisce Σ 4 livelli Mix = Eff.Mix).
-          </p>
-        </div>
-        <input
-          type="text"
-          placeholder="Cerca codice / descrizione…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-60 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
-        />
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs" style={{ minWidth: 1300 }}>
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              {sTh('codice',     'Codice / Descrizione', 'left')}
-              {sTh('mPct1',      'M% P1')}
-              {sTh('mixBrand',   'Mix Brand')}
-              {sTh('mixCat',     'Mix Categoria')}
-              {sTh('mixSubCat',  'Mix Sottocategoria')}
-              {sTh('mixFormato', 'Mix Formato')}
-              {sTh('effPrezzo',  'Eff. Prezzo')}
-              {sTh('effCosto',   'Eff. Costo')}
-              {sTh('mPct2',      'M% P2')}
-              <th className="px-3 py-2.5 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-6 py-8 text-center text-xs text-slate-400">Nessuna referenza trovata.</td>
-              </tr>
-            ) : sorted.map(r => (
-              <tr key={r.line.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                <td className="px-3 py-2">
-                  <div className="font-mono text-[9px] text-slate-400 leading-none">{r.line.codice}</div>
-                  <div className="text-slate-700 text-[10px] max-w-[200px] truncate mt-0.5" title={r.line.descrizione}>
-                    {r.line.descrizione || '—'}
-                  </div>
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {r.line.isOnlyP2
-                    ? <span className="text-slate-300 tabular-nums">N/D</span>
-                    : <span className="tabular-nums text-slate-600">{nd(r.line.marginPct1Raw, v => fmtPct(v * 100))}</span>}
-                </td>
-                {ppTd(r.mixBrand)}
-                {ppTd(r.mixCat)}
-                {ppTd(r.mixSubCat)}
-                {ppTd(r.mixFormato)}
-                {ppTd(r.effPrezzo)}
-                {ppTd(r.effCosto)}
-                <td className="px-3 py-2 text-right">
-                  {r.line.isOnlyP1
-                    ? <span className="text-slate-300 tabular-nums">N/D</span>
-                    : <span className="tabular-nums text-slate-600">{nd(r.line.marginPct2Raw, v => fmtPct(v * 100))}</span>}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <PresenceBadge presence={r.line.presence} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
-              <td className="px-3 py-2.5 text-slate-700">
-                TOTALE
-                <div className="text-[9px] font-normal text-slate-400">Σ su tutte le referenze</div>
-              </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtPct(effects.marginPctP1 * 100)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixBrand)}`}>{fmtPp(totals.mixBrand)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixCat)}`}>{fmtPp(totals.mixCat)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixSubCat)}`}>{fmtPp(totals.mixSubCat)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.mixFormato)}`}>{fmtPp(totals.mixFormato)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.effPrezzo)}`}>{fmtPp(totals.effPrezzo)}</td>
-              <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${clrPp(totals.effCosto)}`}>{fmtPp(totals.effCosto)}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtPct(effects.marginPctP2 * 100)}</td>
-              <td />
-            </tr>
-            <tr className="bg-blue-50/40 text-[9px] text-slate-500 border-t border-blue-100">
-              <td className="px-3 py-1.5 text-slate-500 font-medium" colSpan={2}>Quadratura</td>
-              <td className="px-3 py-1.5 text-right" colSpan={4}>
-                Σ Mix = <strong>{fmtPp(totalMix)}</strong>
-                {' '}vs Eff.Mix = <strong>{fmtPp(effects.effMix)}</strong>
-                {chk(mixOk)}
-              </td>
-              <td className="px-3 py-1.5 text-right">
-                Σ = <strong>{fmtPp(totals.effPrezzo)}</strong>
-                {' '}vs <strong>{fmtPp(effects.effPrezzo)}</strong>
-                {chk(prOk)}
-              </td>
-              <td className="px-3 py-1.5 text-right">
-                Σ = <strong>{fmtPp(totals.effCosto)}</strong>
-                {' '}vs <strong>{fmtPp(effects.effCosto)}</strong>
-                {chk(coOk)}
-              </td>
-              <td colSpan={2} />
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -1794,9 +1725,6 @@ export default function VarianceAnalysis() {
             {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
             <MixEffectBreakdown effects={effects} />
 
-            {/* ── Mix per Prodotto ──────────────────────────────────────────── */}
-            <MixPerProdotto effects={effects} />
-
             {/* ── Waterfall Charts ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
               <WaterfallChart
@@ -2152,8 +2080,8 @@ export default function VarianceAnalysis() {
               />
             )}
 
-            {/* ── Scomposizione Mix per Referenza ───────────────────────────────── */}
-            <ScompMixReferenzaTable effects={effects} />
+            {/* ── Scomposizione Mix Gerarchica ──────────────────────────────────── */}
+            <HierarchicalMixTable effects={effects} />
           </>
         )}
 
