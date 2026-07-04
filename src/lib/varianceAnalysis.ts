@@ -970,13 +970,21 @@ function computeMixDecomposition(
 ): MixDecomposition {
   const effMixTotal = marginPctM - marginPctV;
 
-  // Build one hybrid scenario and return its margin%.
-  // groupKey(l): the dimension key for line l at this level.
-  // Also stores the computed q on each line via the setter.
+  const Q1 = lines.reduce((s, l) => s + l.q1, 0);
+  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
+
+  // Build one hybrid scenario using the correct Alessio-Moro formula:
+  //   qS_i = Q2_padre × (q1_i / Q1_padre)
+  // The denominator is the PARENT group total, not the current group total.
+  // Returns marginPct and the current level's groupQ1/groupQ2 maps, which
+  // become parentGroupQ1/Q2 for the next level.
   function buildScenario(
-    groupKey: (l: ComparedLine) => string,
-    setter: (l: ComparedLine, q: number) => void,
-  ): number {
+    groupKey:      (l: ComparedLine) => string,
+    parentKey:     (l: ComparedLine) => string,
+    parentGroupQ1: Map<string, number>,
+    parentGroupQ2: Map<string, number>,
+    setter:        (l: ComparedLine, q: number) => void,
+  ): { marginPct: number; groupQ1: Map<string, number>; groupQ2: Map<string, number> } {
     const groupQ1 = new Map<string, number>();
     const groupQ2 = new Map<string, number>();
     for (const l of lines) {
@@ -986,34 +994,57 @@ function computeMixDecomposition(
     }
     let revS = 0, costS = 0;
     for (const l of lines) {
-      const k   = groupKey(l);
-      const Q1g = groupQ1.get(k)!;
-      const Q2g = groupQ2.get(k)!;
-      // P1-proportional distribution within group; fallback to q2 if Q1g = 0
-      const qS = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+      const Q1padre = parentGroupQ1.get(parentKey(l)) ?? 0;
+      const Q2padre = parentGroupQ2.get(parentKey(l)) ?? 0;
+      // Correct formula: Q2_padre × (q1_i / Q1_padre)
+      // Fallback: if parent has no P1 volume, inherit actual q2_i (quantity preserved)
+      const qS = Q1padre > 0 ? Q2padre * (l.q1 / Q1padre) : l.q2;
       setter(l, qS);
       revS  += qS * l.price1Effective;
       costS += qS * l.unitCost1Effective;
     }
-    return revS > 0 ? (revS - costS) / revS : marginPctV;
+    return { marginPct: revS > 0 ? (revS - costS) / revS : marginPctV, groupQ1, groupQ2 };
   }
 
-  const mpctBrand    = buildScenario(
-    l => l.brand    || 'N/D',
+  // Level 1: Brand — parent = Azienda (implicit top level)
+  const resBrand = buildScenario(
+    l  => l.brand || 'N/D',
+    _l => 'azienda',
+    new Map([['azienda', Q1]]),
+    new Map([['azienda', Q2]]),
     (l, q) => { l.qMixBrand = q; },
   );
-  const mpctCat      = buildScenario(
+  const mpctBrand = resBrand.marginPct;
+
+  // Level 2: Categoria — parent = Brand
+  const resCat = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
+    l => l.brand || 'N/D',
+    resBrand.groupQ1,
+    resBrand.groupQ2,
     (l, q) => { l.qMixCat = q; },
   );
-  const mpctSubCat   = buildScenario(
+  const mpctCat = resCat.marginPct;
+
+  // Level 3: SubCat — parent = Brand|Categoria
+  const resSubCat = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
+    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
+    resCat.groupQ1,
+    resCat.groupQ2,
     (l, q) => { l.qMixSubCat = q; },
   );
-  const mpctFormato  = buildScenario(
+  const mpctSubCat = resSubCat.marginPct;
+
+  // Level 4: Formato — parent = Brand|Categoria|SubCat
+  const resFormato = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}|${l.formato || 'N/D'}`,
+    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
+    resSubCat.groupQ1,
+    resSubCat.groupQ2,
     (l, q) => { l.qMixFormato = q; },
   );
+  const mpctFormato = resFormato.marginPct;
 
   const brand         = mpctBrand   - marginPctV;
   const categoria     = mpctCat     - mpctBrand;
@@ -1044,7 +1075,6 @@ function computeMixDecomposition(
   // For scenarios A → B: contrib_g = margin_contribution_g_B - margin_contribution_g_A
   // where margin_contribution_g = (revB_g - costB_g) / revB_total
   // Σ_g contrib_g = marginPctB - marginPctA  (exactly additive by construction)
-  const Q2 = lines.reduce((s, l) => s + l.q2, 0);
 
   function levelBreakdown(
     keyFn: (l: ComparedLine) => string,
@@ -1109,6 +1139,43 @@ function computeMixDecomposition(
     brand, categoria, sottocategoria, formato, residuo, totale,
     brandBreakdown, categoriaBreakdown, sottocategoriaBreakdown, formatoBreakdown, productBreakdown,
   };
+}
+
+// ─── validateQuantityConservation ────────────────────────────────────────────
+// Invariant: every hybrid mix scenario redistributes Q2 among referenze without
+// changing the total. Violated only by floating-point accumulation (|diff| < 1e-6
+// expected). A larger error signals a bug in buildScenario.
+
+export function validateQuantityConservation(
+  lines: ComparedLine[],
+  Q2: number,
+  tol = 0.001,
+): boolean {
+  const checks: [string, number][] = [
+    ['Σ q2',          lines.reduce((s, l) => s + l.q2,              0)],
+    ['Σ qMixBrand',   lines.reduce((s, l) => s + (l.qMixBrand   ?? 0), 0)],
+    ['Σ qMixCat',     lines.reduce((s, l) => s + (l.qMixCat     ?? 0), 0)],
+    ['Σ qMixSubCat',  lines.reduce((s, l) => s + (l.qMixSubCat  ?? 0), 0)],
+    ['Σ qMixFormato', lines.reduce((s, l) => s + (l.qMixFormato ?? 0), 0)],
+  ];
+
+  let ok = true;
+  dbg('─── Quantity conservation check ─────────────────────────────────');
+  dbg('Q2 reference:', Q2.toFixed(4));
+  for (const [label, sum] of checks) {
+    const diff = Math.abs(sum - Q2);
+    const pass = diff <= tol;
+    dbg(`${label}: ${sum.toFixed(4)}  diff=${diff.toFixed(6)}  ${pass ? '✓ OK' : '⚠ FAIL'}`);
+    if (!pass) {
+      console.warn(
+        `[VARIANCE] Quantity conservation FAILED for ${label}:`,
+        `sum=${sum.toFixed(4)}, Q2=${Q2.toFixed(4)}, diff=${diff.toFixed(6)}`,
+      );
+      ok = false;
+    }
+  }
+  dbg('────────────────────────────────────────────────────────────────');
+  return ok;
 }
 
 // ─── computeVarianceEffects — main entry point ────────────────────────────────
