@@ -970,20 +970,16 @@ function computeMixDecomposition(
 ): MixDecomposition {
   const effMixTotal = marginPctM - marginPctV;
 
-  const Q1 = lines.reduce((s, l) => s + l.q1, 0);
   const Q2 = lines.reduce((s, l) => s + l.q2, 0);
 
-  // Build one hybrid scenario using the correct Alessio-Moro formula:
-  //   qS_i = Q2_padre × (q1_i / Q1_padre)
-  // The denominator is the PARENT group total, not the current group total.
-  // Returns marginPct and the current level's groupQ1/groupQ2 maps, which
-  // become parentGroupQ1/Q2 for the next level.
+  // Original buildScenario formula: distribute Q2g in P1 proportions within each group.
+  // Fallback to q2_i when Q1g = 0 (group absent from P1) OR when the optional
+  // ancestor check fails (an ancestor group is absent from P1).
+  // Returns groupQ1/groupQ2 so each level can pass them as ancestor checks downstream.
   function buildScenario(
-    groupKey:      (l: ComparedLine) => string,
-    parentKey:     (l: ComparedLine) => string,
-    parentGroupQ1: Map<string, number>,
-    parentGroupQ2: Map<string, number>,
-    setter:        (l: ComparedLine, q: number) => void,
+    groupKey:  (l: ComparedLine) => string,
+    setter:    (l: ComparedLine, q: number) => void,
+    ancestors?: (l: ComparedLine) => boolean,
   ): { marginPct: number; groupQ1: Map<string, number>; groupQ2: Map<string, number> } {
     const groupQ1 = new Map<string, number>();
     const groupQ2 = new Map<string, number>();
@@ -994,11 +990,10 @@ function computeMixDecomposition(
     }
     let revS = 0, costS = 0;
     for (const l of lines) {
-      const Q1padre = parentGroupQ1.get(parentKey(l)) ?? 0;
-      const Q2padre = parentGroupQ2.get(parentKey(l)) ?? 0;
-      // Correct formula: Q2_padre × (q1_i / Q1_padre)
-      // Fallback: if parent has no P1 volume, inherit actual q2_i (quantity preserved)
-      const qS = Q1padre > 0 ? Q2padre * (l.q1 / Q1padre) : l.q2;
+      const k   = groupKey(l);
+      const Q1g = groupQ1.get(k) ?? 0;
+      const Q2g = groupQ2.get(k) ?? 0;
+      const qS  = (Q1g > 0 && (!ancestors || ancestors(l))) ? Q2g * (l.q1 / Q1g) : l.q2;
       setter(l, qS);
       revS  += qS * l.price1Effective;
       costS += qS * l.unitCost1Effective;
@@ -1006,43 +1001,44 @@ function computeMixDecomposition(
     return { marginPct: revS > 0 ? (revS - costS) / revS : marginPctV, groupQ1, groupQ2 };
   }
 
-  // Level 1: Brand — parent = Azienda (implicit top level)
+  // Level 1: Brand — original formula, no ancestor check
   const resBrand = buildScenario(
-    l  => l.brand || 'N/D',
-    _l => 'azienda',
-    new Map([['azienda', Q1]]),
-    new Map([['azienda', Q2]]),
+    l => l.brand || 'N/D',
     (l, q) => { l.qMixBrand = q; },
   );
   const mpctBrand = resBrand.marginPct;
 
-  // Level 2: Categoria — parent = Brand
+  // Level 2: Categoria — also require Q1_brand > 0
   const resCat = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
-    l => l.brand || 'N/D',
-    resBrand.groupQ1,
-    resBrand.groupQ2,
     (l, q) => { l.qMixCat = q; },
+    l => (resBrand.groupQ1.get(l.brand || 'N/D') ?? 0) > 0,
   );
   const mpctCat = resCat.marginPct;
 
-  // Level 3: SubCat — parent = Brand|Categoria
+  // Level 3: SubCat — also require Q1_bc > 0 and Q1_brand > 0
   const resSubCat = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
-    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
-    resCat.groupQ1,
-    resCat.groupQ2,
     (l, q) => { l.qMixSubCat = q; },
+    l => {
+      const bc = `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`;
+      return (resCat.groupQ1.get(bc) ?? 0) > 0 && (resBrand.groupQ1.get(l.brand || 'N/D') ?? 0) > 0;
+    },
   );
   const mpctSubCat = resSubCat.marginPct;
 
-  // Level 4: Formato — parent = Brand|Categoria|SubCat
+  // Level 4: Formato — also require Q1_bcs > 0, Q1_bc > 0, Q1_brand > 0
   const resFormato = buildScenario(
     l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}|${l.formato || 'N/D'}`,
-    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
-    resSubCat.groupQ1,
-    resSubCat.groupQ2,
     (l, q) => { l.qMixFormato = q; },
+    l => {
+      const b   = l.brand || 'N/D';
+      const bc  = `${b}|${l.categoria || 'N/D'}`;
+      const bcs = `${bc}|${l.sottocategoria || 'N/D'}`;
+      return (resSubCat.groupQ1.get(bcs) ?? 0) > 0
+          && (resCat.groupQ1.get(bc) ?? 0) > 0
+          && (resBrand.groupQ1.get(b) ?? 0) > 0;
+    },
   );
   const mpctFormato = resFormato.marginPct;
 
