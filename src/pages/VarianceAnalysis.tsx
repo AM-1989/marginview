@@ -13,12 +13,12 @@ import {
 import { exportPDF } from '../lib/exportPDF';
 import {
   parseExcelToVarRows, extractPeriods, extractFilterOptions,
-  filterRowsByPeriodAndFilters, computeVarianceEffects, generateInsights,
+  filterRowsByPeriodAndFilters, computeVarianceEffects,
   FILTER_DIMS, FILTER_DIM_LABELS,
 } from '../lib/varianceAnalysis';
 import type {
   VarRow, FilterDim,
-  ComparedLine, TableGroup, WaterfallPoint, EffectsResult, AIInsight,
+  ComparedLine, TableGroup, WaterfallPoint, EffectsResult,
 } from '../lib/varianceAnalysis';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -227,27 +227,6 @@ function KpiCard({ label, v1, v2, fmt, subtitle }: {
       <p className={`text-xs font-semibold mt-2 tabular-nums ${clrPp(delta)}`}>
         {delta >= 0 ? '+' : ''}{fmt(delta)}
       </p>
-    </div>
-  );
-}
-
-// ─── Insight Card ─────────────────────────────────────────────────────────────
-
-function InsightCard({ insight }: { insight: AIInsight }) {
-  const colors = {
-    positive: 'border-emerald-200 bg-emerald-50',
-    negative: 'border-red-200 bg-red-50',
-    neutral:  'border-blue-200 bg-blue-50',
-  };
-  const titleColors = {
-    positive: 'text-emerald-700',
-    negative: 'text-red-700',
-    neutral:  'text-blue-700',
-  };
-  return (
-    <div className={`rounded-xl border p-4 ${colors[insight.type]}`}>
-      <p className={`text-xs font-bold mb-1.5 ${titleColors[insight.type]}`}>{insight.title}</p>
-      <p className="text-xs text-slate-600 leading-relaxed">{insight.text}</p>
     </div>
   );
 }
@@ -475,8 +454,6 @@ export default function VarianceAnalysis() {
       ? computeVarianceEffects(rowsP1, rowsP2)
       : null,
   [rowsP1, rowsP2]);
-
-  const insights = useMemo(() => effects ? generateInsights(effects) : [], [effects]);
 
   const catDrivers = useMemo((): CatDriver[] | null => {
     if (!effects) return null;
@@ -1057,17 +1034,6 @@ export default function VarianceAnalysis() {
                     ))}
                   </tbody>
                 </table>
-              </div>
-            </div>
-
-            {/* ── Insights AI ────────────────────────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <div className="mb-4">
-                <h3 className="text-sm font-semibold text-slate-800">Insights AI — Analisi Strategica</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Analisi deterministica basata sui dati calcolati</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {insights.map((ins, i) => <InsightCard key={i} insight={ins} />)}
               </div>
             </div>
 

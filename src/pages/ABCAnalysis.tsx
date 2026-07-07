@@ -1,8 +1,9 @@
-import { useMemo, useState, useRef } from 'react';
-import { SlidersHorizontal, MessageSquareText, PenLine, ChevronsUpDown } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { SlidersHorizontal, MessageSquareText, PenLine, ChevronsUpDown, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { calculateAbcAnalysis } from '../lib/abcAnalysis';
 import { mockRows } from '../lib/mockData';
-import type { AbcRating, AbcResult, AbcSummary } from '../types';
+import type { AbcRating, AbcResult } from '../types';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,38 +43,6 @@ const fmtEur = new Intl.NumberFormat('it-IT', {
 });
 const fmtInt = new Intl.NumberFormat('it-IT');
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
-
-// ── AI comment — dynamically built from live data ─────────────────────────────
-
-function buildAiComment(summary: AbcSummary, details: AbcResult[]): string {
-  const classA     = details.filter(d => d.RatingFinale === 'A');
-  const classC     = details.filter(d => d.RatingFinale === 'C');
-  const criticalAC = details.filter(d => d.RatingFatturato === 'A' && d.RatingProfitto === 'C');
-  const starBA     = details.filter(d => d.RatingFatturato === 'B' && d.RatingProfitto === 'A');
-  const classAShare = classA.reduce((s, d) => s + d.Fatturato, 0) / summary.TotaleFatturato;
-  const top3Share   = details.slice(0, 3).reduce((s, d) => s + d.Fatturato, 0) / summary.TotaleFatturato;
-  const conc        = classAShare > 0.75 ? 'fortemente' : 'moderatamente';
-
-  const lines = [
-    `L'analisi ABC identifica ${classA.length} referenze di Classe A che concentrano il ${fmtPct(classAShare * 100)} del fatturato complessivo — distribuzione ${conc} concentrata, coerente con la Legge di Pareto applicata ai portafogli consumer.`,
-    '',
-    criticalAC.length > 0
-      ? `⚠ Criticità AC: ${criticalAC.length} referenz${criticalAC.length > 1 ? 'e generano' : 'a genera'} volumi rilevanti ma marginalità inferiore alla media aziendale (${fmtPct(summary.MarginePercGlobale)}). Prodotti coinvolti: ${criticalAC.map(d => d.Descrizione).join(', ')}. Si raccomanda revisione del pricing o analisi dei driver di costo specifici.`
-      : `✓ Nessuna referenza critica in classe AC: buona correlazione tra contributo al fatturato e marginalità unitaria.`,
-    '',
-    starBA.length > 0
-      ? `★ Opportunità BA: ${starBA.length} referenz${starBA.length > 1 ? 'e' : 'a'} (${starBA.map(d => d.Descrizione).join(', ')}) mostrano marginalità superiore alla media con volumi nella fascia B — candidati ideali per azioni di sviluppo commerciale o ampliamento distribuzione.`
-      : null,
-    starBA.length > 0 ? '' : null,
-    classC.length > 0
-      ? `Le ${classC.length} referenze di Classe C contribuiscono marginalmente sia al fatturato che alla marginalità totale. Una razionalizzazione del portafoglio potrebbe liberare risorse allocative da ridirigere su classi A e BA.`
-      : null,
-    '',
-    `Indicatori sintetici: concentrazione top-3 ${fmtPct(top3Share * 100)} · margine medio ${fmtPct(summary.MarginePercGlobale)} · ${summary.NumReferenze} referenze analizzate.`,
-  ];
-
-  return lines.filter(l => l !== null).join('\n');
-}
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -292,7 +261,52 @@ export default function ABCAnalysis() {
     return sortDir === 'desc' ? -cmp : cmp;
   }), [details, sortKey, sortDir]);
 
-  const aiComment = useMemo(() => buildAiComment(summary, details), [summary, details]);
+  const { token } = useAuth();
+
+  const [aiComment, setAiComment] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError,   setAiError]   = useState<string | null>(null);
+
+  const noteKey = `marginview_abc_note_${profitTolerance}`;
+
+  useEffect(() => {
+    setUserNote(localStorage.getItem(noteKey) ?? '');
+  }, [noteKey]);
+
+  useEffect(() => {
+    const classA    = details.filter(d => d.RatingFinale === 'A');
+    const classC    = details.filter(d => d.RatingFinale === 'C');
+    const criticalAC = details.filter(d => d.RatingFatturato === 'A' && d.RatingProfitto === 'C');
+    const classAShare = classA.reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1);
+    const top3Share   = details.slice(0, 3).reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1);
+
+    const ctrl = new AbortController();
+    setAiLoading(true);
+    setAiComment(null);
+    setAiError(null);
+    fetch('/api/ai-comment', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body:    JSON.stringify({
+        module: 'abc',
+        data: {
+          numReferenze:   summary.NumReferenze,
+          classACount:    classA.length,
+          classASharePct: classAShare * 100,
+          classCCount:    classC.length,
+          criticalAC:     criticalAC.length,
+          margineGlobale: summary.MarginePercGlobale,
+          top3SharePct:   top3Share * 100,
+        },
+      }),
+      signal: ctrl.signal,
+    })
+      .then(r => r.json())
+      .then(d => { if (d.comment) setAiComment(d.comment); else if (d.error) setAiError(d.error); })
+      .catch(e => { if (e.name !== 'AbortError') setAiError('Impossibile generare il commento AI.'); })
+      .finally(() => setAiLoading(false));
+    return () => ctrl.abort();
+  }, [summary, details, token]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -521,56 +535,74 @@ export default function ABCAnalysis() {
         {/* AI comment */}
         <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
               <MessageSquareText className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">Analisi AI</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Generata in tempo reale dai dati correnti</p>
+              <p className="text-sm font-semibold text-white">Commento AI — Analisi ABC</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
             </div>
           </div>
 
-          <div className="flex-1 text-sm text-slate-300 leading-relaxed whitespace-pre-line font-light">
-            {aiComment}
+          <div className="flex-1 min-h-[100px]">
+            {aiLoading && (
+              <div className="space-y-2.5 animate-pulse">
+                {[100, 90, 96, 80, 88].map((w, i) => (
+                  <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
+                ))}
+              </div>
+            )}
+            {aiError && !aiLoading && (
+              <div className="flex items-center gap-2 text-amber-400 text-sm">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{aiError}</span>
+              </div>
+            )}
+            {aiComment && !aiLoading && (
+              <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
+                {aiComment}
+              </p>
+            )}
           </div>
 
-          <div className="mt-5 pt-4 border-t border-slate-800 flex items-center justify-between">
-            <p className="text-[10px] text-slate-600">
-              Tolleranza attiva: ± {profitTolerance} pp · Margine medio: {fmtPct(summary.MarginePercGlobale)}
-            </p>
-            <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-700 text-slate-500">
-              Demo
-            </span>
+          <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
+            {([
+              { label: 'Classe A %', v: fmtPct(details.filter(d => d.RatingFinale === 'A').reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
+              { label: 'Margine medio', v: fmtPct(summary.MarginePercGlobale) },
+              { label: 'Top-3 share', v: fmtPct(details.slice(0, 3).reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
+            ]).map(({ label, v }) => (
+              <div key={label} className="text-center">
+                <p className="text-[10px] text-slate-500 mb-1">{label}</p>
+                <p className="text-sm font-bold tabular-nums text-slate-200">{v}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* User note */}
+        {/* Consultant note */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
           <div className="flex items-center gap-3 mb-5">
             <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
               <PenLine className="w-4 h-4 text-slate-500" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-800">Note Aziendali</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni e decisioni del management</p>
+              <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'analisi corrente</p>
             </div>
           </div>
 
           <textarea
             value={userNote}
-            onChange={e => setUserNote(e.target.value)}
-            placeholder="Inserisci considerazioni, decisioni operative o commenti strategici sull'analisi ABC..."
-            className="
-              flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200
-              p-4 text-sm text-slate-700 leading-relaxed
-              placeholder:text-slate-300
-              focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100
-              transition-all min-h-52
-            "
+            onChange={e => {
+              setUserNote(e.target.value);
+              localStorage.setItem(noteKey, e.target.value);
+            }}
+            placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
+            className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
           />
 
           <div className="flex items-center justify-between mt-3">
-            <p className="text-[10px] text-slate-400">Le note non vengono salvate in questa demo</p>
+            <p className="text-[10px] text-slate-400">Salvato automaticamente per questa tolleranza</p>
             {userNote && (
               <p className="text-[11px] text-slate-400 tabular-nums">{userNote.length} car.</p>
             )}

@@ -1,12 +1,13 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-  TrendingUp, Building2, MessageSquareText, PenLine,
+  TrendingUp, Building2, MessageSquareText, PenLine, AlertTriangle,
   FileDown, Plus, Trash2, Activity, RotateCcw,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { exportPDF } from '../lib/exportPDF';
 import { calculateBalanceKPIs } from '../lib/balanceAnalysis';
 import type { BalanceInputYear, BalanceKPI } from '../types';
@@ -126,28 +127,6 @@ function KpiCard({
   );
 }
 
-// ── AI comment ────────────────────────────────────────────────────────────────
-
-function buildAiComment(kpi: BalanceKPI): string {
-  const eQ = rate('ebitdaPerc', kpi.ebitdaPerc);
-  const pQ = rate('pfnEbitda',  kpi.pfnEbitda);
-  const rQ = rate('roe',        kpi.roe);
-  const lQ = rate('currentRatio', kpi.currentRatio);
-  return [
-    `L'EBITDA Margin al ${fmtPct(kpi.ebitdaPerc)} ${eQ === 'good' ? "evidenzia un'ottima efficienza operativa" : eQ === 'warn' ? 'indica una discreta efficienza industriale' : 'segnala margini compressi che richiedono intervento'} nell'anno ${kpi.anno}.`,
-    '',
-    !isFinite(kpi.pfnEbitda)
-      ? `Il rapporto PFN/EBITDA non è calcolabile (EBITDA ≤ 0) — l'azienda non genera cassa operativa sufficiente a servire il debito (PFN: ${fmtEurK(kpi.pfn)}).`
-      : `Il rapporto PFN/EBITDA a ${fmtX(kpi.pfnEbitda)} ${pQ === 'good' ? 'certifica un\'ottima sostenibilità del debito (benchmark: < 3.0×)' : pQ === 'warn' ? 'si posiziona nella fascia di attenzione (3–4×)' : 'segnala leva eccessiva — priorità di deleveraging (> 4×)'}. La PFN ammonta a ${fmtEurK(kpi.pfn)}.`,
-    '',
-    !isFinite(kpi.roe)
-      ? `Il ROE non è calcolabile (patrimonio netto negativo) — segnale di criticità strutturale del capitale proprio.`
-      : `Il ROE al ${fmtPct(kpi.roe)} ${rQ === 'good' ? 'riflette un\'elevata creazione di valore per gli azionisti' : rQ === 'warn' ? 'mostra una remunerazione del capitale nella norma' : 'indica una redditività per gli azionisti sotto le attese di mercato'}.`,
-    '',
-    `Il Cash Conversion Cycle è di ${fmtGg(kpi.ccc)} (DSO ${fmtGg(kpi.dso)} + DIO ${fmtGg(kpi.dio)} − DPO ${fmtGg(kpi.dpo)}). Il Current Ratio è ${fmtX(kpi.currentRatio)}${lQ === 'good' ? ' — posizione solida' : lQ === 'warn' ? ' — margini accettabili' : ' — potenziale tensione di liquidità a breve'}.`,
-  ].join('\n');
-}
-
 // ── Glossario ─────────────────────────────────────────────────────────────────
 
 const GLOSSARIO = [
@@ -174,15 +153,20 @@ const GLOSSARIO = [
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function BalanceAnalysis() {
+  const { token } = useAuth();
   const [years, setYears]           = useState<BalanceInputYear[]>(DEFAULT_YEARS);
   const [tab, setTab]               = useState<Tab>('dashboard');
   const [dashYear, setDashYear]     = useState(DEFAULT_YEARS.length - 1);
-  const [userNote, setUserNote]     = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
   const [addingYear, setAddingYear] = useState(false);
   const [newYearVal, setNewYearVal] = useState('');
   const newYearRef = useRef<HTMLInputElement>(null);
   const pdfRef = useRef<HTMLDivElement>(null);
+
+  const [aiComment, setAiComment]   = useState<string | null>(null);
+  const [aiLoading, setAiLoading]   = useState(false);
+  const [aiError, setAiError]       = useState<string | null>(null);
+  const [userNote, setUserNote]     = useState('');
 
   const kpis: BalanceKPI[] = useMemo(() => years.map(y => calculateBalanceKPIs(y)), [years]);
 
@@ -190,7 +174,45 @@ export default function BalanceAnalysis() {
   const selInput = years[dashYear];
   const prevKpi  = dashYear > 0 ? kpis[dashYear - 1] : null;
 
-  const aiComment = useMemo(() => selKpi ? buildAiComment(selKpi) : '', [selKpi]);
+  const noteKey = `marginview_balance_note_${selInput?.anno}`;
+
+  useEffect(() => {
+    setUserNote(localStorage.getItem(noteKey) ?? '');
+  }, [noteKey]);
+
+  useEffect(() => {
+    if (!selKpi) return;
+    const ctrl = new AbortController();
+    setAiLoading(true);
+    setAiComment(null);
+    setAiError(null);
+    fetch('/api/ai-comment', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({
+        module: 'bilancio',
+        data: {
+          anno:         selKpi.anno,
+          ricavi:       selInput.ricavi,
+          ebitdaPerc:   selKpi.ebitdaPerc,
+          ebitPerc:     selKpi.ebitPerc,
+          utileNettoPerc: selKpi.utileNettoPerc,
+          roe:          selKpi.roe,
+          roi:          selKpi.roi,
+          pfnEbitda:    isFinite(selKpi.pfnEbitda) ? selKpi.pfnEbitda : null,
+          currentRatio: selKpi.currentRatio,
+          ccc:          selKpi.ccc,
+          freeCashFlow: selKpi.freeCashFlow,
+        },
+      }),
+      signal: ctrl.signal,
+    })
+      .then(r => r.json())
+      .then(d => { if (d.comment) setAiComment(d.comment); else setAiError(d.error ?? 'Errore.'); })
+      .catch(e => { if (e.name !== 'AbortError') setAiError('Impossibile generare il commento AI.'); })
+      .finally(() => setAiLoading(false));
+    return () => ctrl.abort();
+  }, [selKpi, token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateField = useCallback((yearIdx: number, field: EditableField, raw: string) => {
     const value = raw === '' ? 0 : Number(raw);
@@ -434,25 +456,44 @@ export default function BalanceAnalysis() {
           </div>
 
           {/* AI + Note */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pb-8">
+
+            {/* AI Comment card */}
             <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
                   <MessageSquareText className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-white">Analisi AI — Bilancio {selInput.anno}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Generata in tempo reale dai KPI calcolati</p>
+                  <p className="text-sm font-semibold text-white">Commento AI — Bilancio {selInput.anno}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
                 </div>
               </div>
-              <div className="flex-1 text-sm text-slate-300 leading-relaxed whitespace-pre-line font-light">
-                {aiComment}
+              <div className="flex-1 min-h-[100px]">
+                {aiLoading && (
+                  <div className="space-y-2.5 animate-pulse">
+                    {[100, 90, 96, 80, 88].map((w, i) => (
+                      <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
+                    ))}
+                  </div>
+                )}
+                {aiError && !aiLoading && (
+                  <div className="flex items-center gap-2 text-amber-400 text-sm">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{aiError}</span>
+                  </div>
+                )}
+                {aiComment && !aiLoading && (
+                  <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
+                    {aiComment}
+                  </p>
+                )}
               </div>
               <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
                 {([
-                  { label: 'EBITDA %', v: selKpi.ebitdaPerc, fmt: fmtPct, qk: 'ebitdaPerc' },
-                  { label: 'ROE',      v: selKpi.roe,        fmt: fmtPct, qk: 'roe' },
-                  { label: 'PFN/EBITDA', v: selKpi.pfnEbitda, fmt: fmtX,  qk: 'pfnEbitda' },
+                  { label: 'EBITDA %',   v: selKpi.ebitdaPerc, fmt: fmtPct, qk: 'ebitdaPerc' },
+                  { label: 'ROE',        v: selKpi.roe,        fmt: fmtPct, qk: 'roe' },
+                  { label: 'PFN/EBITDA', v: selKpi.pfnEbitda,  fmt: fmtX,   qk: 'pfnEbitda' },
                 ] as { label: string; v: number; fmt: (v: number) => string; qk: string }[]).map(({ label, v, fmt, qk }) => {
                   const q = rate(qk, v);
                   return (
@@ -467,24 +508,28 @@ export default function BalanceAnalysis() {
               </div>
             </div>
 
+            {/* Consultant note card */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
                   <PenLine className="w-4 h-4 text-slate-500" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-800">Note del Consulente</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Anno {selInput.anno} — Considerazioni strategiche</p>
+                  <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'anno {selInput.anno}</p>
                 </div>
               </div>
               <textarea
                 value={userNote}
-                onChange={e => setUserNote(e.target.value)}
-                placeholder="Inserisci osservazioni, obiettivi, benchmark di settore o piani d'azione..."
+                onChange={e => {
+                  setUserNote(e.target.value);
+                  localStorage.setItem(noteKey, e.target.value);
+                }}
+                placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
                 className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
               />
               <div className="flex items-center justify-between mt-3">
-                <p className="text-[10px] text-slate-400">Le note non vengono salvate in questa demo</p>
+                <p className="text-[10px] text-slate-400">Salvato automaticamente per questo anno</p>
                 {userNote && <p className="text-[11px] text-slate-400 tabular-nums">{userNote.length} car.</p>}
               </div>
             </div>
