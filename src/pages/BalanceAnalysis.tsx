@@ -63,7 +63,7 @@ const ROW_DEFS: RowDef[] = [
 
 type Quality = 'good' | 'warn' | 'bad' | 'neutral';
 
-interface Thr { good: (v: number) => boolean; warn: (v: number) => boolean; inv?: boolean }
+interface Thr { good: (v: number) => boolean; warn: (v: number) => boolean }
 
 const THR: Record<string, Thr> = {
   ebitdaPerc:  { good: v => v >= 15,  warn: v => v >= 5   },
@@ -71,12 +71,13 @@ const THR: Record<string, Thr> = {
   roi:         { good: v => v >= 10,  warn: v => v >= 5   },
   currentRatio:{ good: v => v >= 1.5, warn: v => v >= 1.0 },
   quickRatio:  { good: v => v >= 1.0, warn: v => v >= 0.7 },
-  pfnEbitda:   { good: v => v <= 2.0, warn: v => v <= 4.0, inv: true },
+  pfnEbitda:   { good: v => v < 3.0,  warn: v => v <= 4.0 },
 };
 
 function rate(key: string, v: number): Quality {
   const t = THR[key];
   if (!t) return 'neutral';
+  if (!isFinite(v)) return 'bad';
   return t.good(v) ? 'good' : t.warn(v) ? 'warn' : 'bad';
 }
 
@@ -93,8 +94,8 @@ const BADGE_LABEL: Record<Quality, string> = {
 // ── Formatters ────────────────────────────────────────────────────────────────
 
 const fmtEur  = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fmtPct  = (v: number) => `${v.toFixed(1)}%`;
-const fmtX    = (v: number) => `${v.toFixed(2)}×`;
+const fmtPct  = (v: number) => !isFinite(v) ? 'N/M' : `${v.toFixed(1)}%`;
+const fmtX    = (v: number) => !isFinite(v) ? 'N/M' : `${v.toFixed(2)}×`;
 const fmtGg   = (v: number) => `${Math.round(v)} gg`;
 const fmtEurK = (v: number) => {
   const abs = Math.abs(v);
@@ -135,9 +136,13 @@ function buildAiComment(kpi: BalanceKPI): string {
   return [
     `L'EBITDA Margin al ${fmtPct(kpi.ebitdaPerc)} ${eQ === 'good' ? "evidenzia un'ottima efficienza operativa" : eQ === 'warn' ? 'indica una discreta efficienza industriale' : 'segnala margini compressi che richiedono intervento'} nell'anno ${kpi.anno}.`,
     '',
-    `Il rapporto PFN/EBITDA a ${fmtX(kpi.pfnEbitda)} ${pQ === 'good' ? 'certifica un\'eccellente sostenibilità del debito (benchmark: < 2.0×)' : pQ === 'warn' ? 'si posiziona nella fascia di normalità settoriale (2–4×)' : 'segnala leva eccessiva — priorità di deleveraging'}. La PFN ammonta a ${fmtEurK(kpi.pfn)}.`,
+    !isFinite(kpi.pfnEbitda)
+      ? `Il rapporto PFN/EBITDA non è calcolabile (EBITDA ≤ 0) — l'azienda non genera cassa operativa sufficiente a servire il debito (PFN: ${fmtEurK(kpi.pfn)}).`
+      : `Il rapporto PFN/EBITDA a ${fmtX(kpi.pfnEbitda)} ${pQ === 'good' ? 'certifica un\'ottima sostenibilità del debito (benchmark: < 3.0×)' : pQ === 'warn' ? 'si posiziona nella fascia di attenzione (3–4×)' : 'segnala leva eccessiva — priorità di deleveraging (> 4×)'}. La PFN ammonta a ${fmtEurK(kpi.pfn)}.`,
     '',
-    `Il ROE al ${fmtPct(kpi.roe)} ${rQ === 'good' ? 'riflette un\'elevata creazione di valore per gli azionisti' : rQ === 'warn' ? 'mostra una remunerazione del capitale nella norma' : 'indica una redditività per gli azionisti sotto le attese di mercato'}.`,
+    !isFinite(kpi.roe)
+      ? `Il ROE non è calcolabile (patrimonio netto negativo) — segnale di criticità strutturale del capitale proprio.`
+      : `Il ROE al ${fmtPct(kpi.roe)} ${rQ === 'good' ? 'riflette un\'elevata creazione di valore per gli azionisti' : rQ === 'warn' ? 'mostra una remunerazione del capitale nella norma' : 'indica una redditività per gli azionisti sotto le attese di mercato'}.`,
     '',
     `Il Cash Conversion Cycle è di ${fmtGg(kpi.ccc)} (DSO ${fmtGg(kpi.dso)} + DIO ${fmtGg(kpi.dio)} − DPO ${fmtGg(kpi.dpo)}). Il Current Ratio è ${fmtX(kpi.currentRatio)}${lQ === 'good' ? ' — posizione solida' : lQ === 'warn' ? ' — margini accettabili' : ' — potenziale tensione di liquidità a breve'}.`,
   ].join('\n');
@@ -151,9 +156,9 @@ const GLOSSARIO = [
   { kpi: 'EBIT',                formula: 'EBITDA − Ammortamenti',                    desc: 'Risultato operativo netto. Base per il calcolo del ROI.' },
   { kpi: 'Utile Netto',         formula: 'EBIT − Oneri Fin. − Imposte',              desc: 'Risultato finale di competenza degli azionisti.' },
   { kpi: 'PFN',                 formula: 'Deb.Fin.BT + LT − Liquidità',              desc: 'Posizione Finanziaria Netta. Se positiva = indebitato netto; se negativa = cassa netta.' },
-  { kpi: 'PFN / EBITDA',        formula: 'PFN ÷ EBITDA',                             desc: 'Capacità di rimborso del debito. Soglia sana: < 3×; allerta: > 4×.' },
+  { kpi: 'PFN / EBITDA',        formula: 'PFN ÷ EBITDA',                             desc: 'Capacità di rimborso del debito. Sano: < 3×; attenzione: 3–4×; critico: > 4×. Non calcolabile (N/M) con EBITDA ≤ 0.' },
   { kpi: 'ROE',                 formula: 'Utile Netto ÷ Patrimonio Netto × 100',     desc: 'Rendimento del capitale proprio. Ottimo ≥ 15%.' },
-  { kpi: 'ROI',                 formula: 'EBIT ÷ (PN + Deb.Fin.Tot.) × 100',        desc: 'Redditività del capitale investito (operativo + finanziario).' },
+  { kpi: 'ROI',                 formula: 'EBIT ÷ Totale Attivo × 100',               desc: 'Redditività del capitale investito (formula ROI tradizionale). Ottimo ≥ 10%.' },
   { kpi: 'Current Ratio',       formula: 'Attivo Corrente ÷ Passivo Corrente',       desc: 'Solvibilità a breve. Sano ≥ 1.5×; critico < 1.0×.' },
   { kpi: 'Quick Ratio',         formula: '(Attivo Corr. − Magazzino) ÷ Pass. Corr.',desc: 'Liquidità senza scorte. Sano ≥ 1.0×.' },
   { kpi: 'Cash Ratio',          formula: 'Liquidità ÷ Passivo Corrente',             desc: 'Copertura con sole disponibilità immediate.' },
@@ -162,6 +167,8 @@ const GLOSSARIO = [
   { kpi: 'DPO',                 formula: 'Debiti Comm. ÷ (CDV ÷ 365)',               desc: 'Giorni medi di pagamento ai fornitori. Maggiore è meglio (entro limiti contrattuali).' },
   { kpi: 'CCC',                 formula: 'DSO + DIO − DPO',                          desc: 'Cash Conversion Cycle: giorni necessari per convertire gli investimenti in entrate di cassa. Minore è meglio.' },
   { kpi: 'Debt / Equity',       formula: 'Deb.Fin.Tot. ÷ Patrimonio Netto',         desc: 'Leva finanziaria. Sano ≤ 1.0×; critico > 2.0×.' },
+  { kpi: 'Free Cash Flow',      formula: 'Utile Netto + Ammortamenti − CAPEX',        desc: 'Proxy di cassa generata dopo investimenti (senza ΔCapitale Circolante). Positivo = autofinanziamento; negativo = consumo di liquidità.' },
+  { kpi: 'CAPEX / Ricavi',      formula: 'CAPEX ÷ Ricavi × 100',                    desc: 'Intensità degli investimenti sul fatturato. Settori capital-intensive hanno valori elevati.' },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -333,8 +340,14 @@ export default function BalanceAnalysis() {
             <KpiCard
               label="PFN / EBITDA"
               value={fmtX(selKpi.pfnEbitda)}
-              sub="< 3× sano"
+              sub="< 3× sano · > 4× critico"
               qKey="pfnEbitda"
+            />
+            <KpiCard
+              label="FREE CASH FLOW"
+              value={fmtEurK(selKpi.freeCashFlow)}
+              sub={`CAPEX ${fmtPct(selKpi.capexToRicavi)} su ricavi`}
+              neutral
             />
             <KpiCard
               label="DSO"

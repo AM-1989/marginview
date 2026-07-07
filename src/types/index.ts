@@ -108,7 +108,7 @@ export interface BalanceKPI {
 
   // Returns
   roe: number;  // Utile Netto / Patrimonio Netto
-  roi: number;  // EBIT / (Patrimonio Netto + Debiti Finanziari totali)
+  roi: number;  // EBIT / Totale Attivo
 
   // Liquidity ratios
   currentRatio: number;  // Attivo Corrente / Passivo Corrente
@@ -125,6 +125,10 @@ export interface BalanceKPI {
   dio: number;  // Days Inventory Outstanding
   dpo: number;  // Days Payable Outstanding
   ccc: number;  // Cash Conversion Cycle = DSO + DIO - DPO
+
+  // Cash flow
+  freeCashFlow: number;   // EBITDA − CAPEX
+  capexToRicavi: number;  // CAPEX / Ricavi × 100
 }
 
 export interface BalanceData {

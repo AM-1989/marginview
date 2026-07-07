@@ -655,6 +655,83 @@ app.get('/api/deploy/log', (req, res) => {
   res.send(lines);
 });
 
+// ── Route: POST /api/ai-comment ──────────────────────────────────────────────
+// Genera un commento AI per un modulo specifico usando Anthropic claude-sonnet-4-6.
+// Richiede autenticazione. Non logga mai la chiave API.
+
+const SYSTEM_PROMPTS = {
+  varianza:
+    'Sei un controller di gestione senior. Analizza i seguenti dati di ' +
+    'varianza marginalità e scrivi un commento professionale e conciso ' +
+    '(massimo 150 parole) come se stessi commentando i risultati a un ' +
+    'cliente. Fai riferimento ai numeri specifici. Non usare elenchi ' +
+    'puntati — scrivi in prosa. Lingua: italiano.',
+};
+
+function buildVarianzaPrompt(data) {
+  const {
+    marginPctP1, marginPctP2, varianzaTotale,
+    effVolume, effMix, effPrezzo, effCosto,
+    totalRev1, totalRev2, totalMargin1, totalMargin2,
+  } = data;
+
+  const pp  = v => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp`;
+  const pct = v => `${(v * 100).toFixed(2)}%`;
+  const eur = v => `€${Math.round(v).toLocaleString('it-IT')}`;
+  const varPct = (a, b) => a > 0 ? `${((b - a) / a * 100).toFixed(1)}%` : 'N/D';
+
+  return [
+    'Dati di varianza marginalità:',
+    `- Margine % P1: ${pct(marginPctP1)}`,
+    `- Margine % P2: ${pct(marginPctP2)}`,
+    `- Varianza totale: ${pp(varianzaTotale)}`,
+    `- Effetto Volume: ${pp(effVolume)}`,
+    `- Effetto Mix:    ${pp(effMix)}`,
+    `- Effetto Prezzo: ${pp(effPrezzo)}`,
+    `- Effetto Costo:  ${pp(effCosto)}`,
+    `- Fatturato P1: ${eur(totalRev1)} → P2: ${eur(totalRev2)} (${varPct(totalRev1, totalRev2)})`,
+    `- Margine €  P1: ${eur(totalMargin1)} → P2: ${eur(totalMargin2)} (${varPct(totalMargin1, totalMargin2)})`,
+  ].join('\n');
+}
+
+app.post('/api/ai-comment', requireAuth, async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'Commento AI non disponibile (chiave non configurata).' });
+
+  const { module: mod, data } = req.body ?? {};
+  if (!mod || !data) return res.status(400).json({ error: 'Parametri mancanti.' });
+
+  const systemPrompt = SYSTEM_PROMPTS[mod];
+  if (!systemPrompt) return res.status(400).json({ error: `Modulo non supportato: ${mod}` });
+
+  let userPrompt;
+  try {
+    if (mod === 'varianza') userPrompt = buildVarianzaPrompt(data);
+  } catch (e) {
+    return res.status(400).json({ error: 'Dati non validi.' });
+  }
+
+  try {
+    // Lazy-require SDK per evitare crash se non configurato
+    const _sdk = require('@anthropic-ai/sdk');
+    const Anthropic = _sdk.default ?? _sdk;
+    const client = new Anthropic({ apiKey });
+
+    const msg = await client.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 400,
+      system:     systemPrompt,
+      messages:   [{ role: 'user', content: userPrompt }],
+    });
+
+    const comment = msg.content?.[0]?.text ?? '';
+    res.json({ comment });
+  } catch (err) {
+    console.error('[AI] Errore chiamata Anthropic:', err.message);
+    res.status(500).json({ error: 'Errore generazione commento AI.' });
+  }
+});
+
 // ── Serve frontend (dist/) in production ─────────────────────────────────────
 
 const distPath = path.join(__dirname, '..', 'dist');

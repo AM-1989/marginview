@@ -159,6 +159,7 @@ export const mockBalanceData: BalanceData = {
       currentRatio: 1.64, quickRatio: 1.31, cashRatio: 0.57,
       pfn: 530_000, pfnEbitda: 0.42, debtToEquity: 0.73,
       dso: 65, dio: 53, dpo: 74, ccc: 44,
+      freeCashFlow: 1_250_000, capexToRicavi: 0,
     },
     {
       anno: 2026,
@@ -169,6 +170,7 @@ export const mockBalanceData: BalanceData = {
       currentRatio: 1.71, quickRatio: 1.38, cashRatio: 0.63,
       pfn: 250_000, pfnEbitda: 0.17, debtToEquity: 0.55,
       dso: 64, dio: 53, dpo: 75, ccc: 42,
+      freeCashFlow: 1_460_000, capexToRicavi: 0,
     },
   ],
 };

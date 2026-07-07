@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import {
@@ -8,7 +8,7 @@ import {
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
   CheckCircle2, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
-  RotateCcw, X, Info,
+  RotateCcw, X, Info, MessageSquareText, PenLine,
 } from 'lucide-react';
 import { exportPDF } from '../lib/exportPDF';
 import {
@@ -1106,7 +1106,7 @@ function TechnicalCalcTable({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const isAdmin = user?.role === 'admin';
 
   // ── Upload state ────────────────────────────────────────────────────────────
@@ -1127,6 +1127,12 @@ export default function VarianceAnalysis() {
   const [expandedDetail, setExpandedDetail] = useState<Set<string>>(new Set());
   const [detailView, setDetailView]   = useState<'grouped' | 'lista'>('grouped');
   const [verifyView, setVerifyView]   = useState<'grouped' | 'lista'>('grouped');
+
+  // ── AI comment + consultant note ────────────────────────────────────────────
+  const [aiComment, setAiComment]       = useState<string | null>(null);
+  const [aiLoading, setAiLoading]       = useState(false);
+  const [aiError, setAiError]           = useState<string | null>(null);
+  const [consultantNote, setConsultantNote] = useState('');
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const periods     = useMemo(() => rows ? extractPeriods(rows) : [], [rows]);
@@ -1150,6 +1156,55 @@ export default function VarianceAnalysis() {
   [rowsP1, rowsP2]);
 
   const insights = useMemo(() => effects ? generateInsights(effects) : [], [effects]);
+
+  // ── AI comment: chiave localStorage + chiamata API ───────────────────────────
+  const noteKey = useMemo(
+    () => `marginview_variance_note_${[...p1Keys].sort().join(',')}_vs_${[...p2Keys].sort().join(',')}`,
+    [p1Keys, p2Keys],
+  );
+
+  useEffect(() => {
+    setConsultantNote(localStorage.getItem(noteKey) ?? '');
+  }, [noteKey]);
+
+  useEffect(() => {
+    if (!effects) {
+      setAiComment(null);
+      setAiError(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    setAiLoading(true);
+    setAiComment(null);
+    setAiError(null);
+    const delta = effects.marginPctP2 - effects.marginPctP1;
+    fetch('/api/ai-comment', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body:    JSON.stringify({
+        module: 'varianza',
+        data: {
+          marginPctP1:    effects.marginPctP1,
+          marginPctP2:    effects.marginPctP2,
+          varianzaTotale: delta,
+          effVolume:      effects.effVolume,
+          effMix:         effects.effMix,
+          effPrezzo:      effects.effPrezzo,
+          effCosto:       effects.effCosto,
+          totalRev1:      effects.totalRev1,
+          totalRev2:      effects.totalRev2,
+          totalMargin1:   effects.totalMargin1,
+          totalMargin2:   effects.totalMargin2,
+        },
+      }),
+      signal: ctrl.signal,
+    })
+      .then(r => r.json())
+      .then(d => { if (d.comment) setAiComment(d.comment); else if (d.error) setAiError(d.error); })
+      .catch(e => { if (e.name !== 'AbortError') setAiError('Impossibile generare il commento AI.'); })
+      .finally(() => setAiLoading(false));
+    return () => ctrl.abort();
+  }, [effects, token]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleFile = useCallback(async (file: File) => {
@@ -1475,6 +1530,85 @@ export default function VarianceAnalysis() {
 
             {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
             <MixEffectBreakdown effects={effects} />
+
+            {/* ── Commento AI + Note Consulente ─────────────────────────────── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+              {/* AI Comment card */}
+              <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
+                    <MessageSquareText className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Commento AI — Varianza Marginalità</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
+                  </div>
+                </div>
+
+                <div className="flex-1 min-h-[100px]">
+                  {aiLoading && (
+                    <div className="space-y-2.5 animate-pulse">
+                      {[100, 90, 96, 80, 88].map((w, i) => (
+                        <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
+                      ))}
+                    </div>
+                  )}
+                  {aiError && !aiLoading && (
+                    <div className="flex items-center gap-2 text-amber-400 text-sm">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      <span>{aiError}</span>
+                    </div>
+                  )}
+                  {aiComment && !aiLoading && (
+                    <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
+                      {aiComment}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
+                  {([
+                    { label: 'Var. Totale', v: effects.marginPctP2 - effects.marginPctP1 },
+                    { label: 'Eff. Volume', v: effects.effVolume },
+                    { label: 'Eff. Mix',    v: effects.effMix },
+                  ] as { label: string; v: number }[]).map(({ label, v }) => (
+                    <div key={label} className="text-center">
+                      <p className="text-[10px] text-slate-500 mb-1">{label}</p>
+                      <p className={`text-sm font-bold tabular-nums ${clrPp(v)}`}>{fmtPp(v)}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Consultant note card */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <PenLine className="w-4 h-4 text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per il periodo selezionato</p>
+                  </div>
+                </div>
+                <textarea
+                  value={consultantNote}
+                  onChange={e => {
+                    setConsultantNote(e.target.value);
+                    localStorage.setItem(noteKey, e.target.value);
+                  }}
+                  placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
+                  className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
+                />
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-[10px] text-slate-400">Salvato automaticamente per questo periodo</p>
+                  {consultantNote && (
+                    <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {/* ── Waterfall Charts ───────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
