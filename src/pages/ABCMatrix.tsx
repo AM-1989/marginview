@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -10,7 +10,9 @@ import {
   Zap, Sparkles, CheckCircle2, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
   Minus, Eye, Search, AlertCircle, GitCompare, Layers,
+  MessageSquareText, PenLine,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { exportPDF } from '../lib/exportPDF';
 import {
   calculate, parseGenericRows, whatIfSimulate,
@@ -186,6 +188,18 @@ export default function ABCMatrix() {
   const pdfRef          = useRef<HTMLDivElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
 
+  const { token } = useAuth();
+  const [aiComment,      setAiComment]      = useState<string | null>(null);
+  const [aiLoading,      setAiLoading]      = useState(false);
+  const [aiError,        setAiError]        = useState<string | null>(null);
+  const [consultantNote, setConsultantNote] = useState('');
+
+  const noteKey = 'marginview_abc_matrix_note';
+
+  useEffect(() => {
+    setConsultantNote(localStorage.getItem(noteKey) ?? '');
+  }, []);
+
   // ── Calculations ──────────────────────────────────────────────────────────
   const metrics = useMemo(
     () => calculate(rows ?? [], thresholdA, thresholdC, customMarginOn ? customMarginVal : null),
@@ -329,6 +343,45 @@ export default function ABCMatrix() {
       return { category: cat.category, revenue: cat.revenue, cells };
     });
   }, [categories, products]);
+
+  // ── AI comment ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!rows || products.length === 0) {
+      setAiComment(null);
+      setAiError(null);
+      return;
+    }
+    const classARevenue = (matrix.AA?.revenue ?? 0) + (matrix.AB?.revenue ?? 0) + (matrix.AC?.revenue ?? 0);
+    const classACount   = (matrix.AA?.count ?? 0)   + (matrix.AB?.count ?? 0)   + (matrix.AC?.count ?? 0);
+    const top3Share     = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 3).reduce((s, p) => s + p.revenue, 0) / (totalRevenue || 1) * 100;
+
+    const ctrl = new AbortController();
+    setAiLoading(true);
+    setAiComment(null);
+    setAiError(null);
+    fetch('/api/ai-comment', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({
+        module: 'abc',
+        data: {
+          numReferenze:   products.length,
+          classACount,
+          classASharePct: totalRevenue > 0 ? classARevenue / totalRevenue * 100 : 0,
+          classCCount:    (matrix.CA?.count ?? 0) + (matrix.CB?.count ?? 0) + (matrix.CC?.count ?? 0),
+          criticalAC:     matrix.AC?.count ?? 0,
+          margineGlobale: weightedMargin,
+          top3SharePct:   top3Share,
+        },
+      }),
+      signal: ctrl.signal,
+    })
+      .then(r => r.json())
+      .then(d => { if (d.comment) setAiComment(d.comment); else if (d.error) setAiError(d.error); })
+      .catch(e => { if (e.name !== 'AbortError') setAiError('Impossibile generare il commento AI.'); })
+      .finally(() => setAiLoading(false));
+    return () => ctrl.abort();
+  }, [rows, token]);
 
   // ── File handlers ─────────────────────────────────────────────────────────
   async function handleMainFile(file: File) {
@@ -1203,6 +1256,83 @@ export default function ABCMatrix() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* ── Commento AI + Nota Consulente ────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pb-8">
+
+        {/* AI comment */}
+        <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
+              <MessageSquareText className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-white">Commento AI — Matrice ABC</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
+            </div>
+          </div>
+          <div className="flex-1 min-h-[100px]">
+            {aiLoading && (
+              <div className="space-y-2.5 animate-pulse">
+                {[100, 90, 96, 80, 88].map((w, i) => (
+                  <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
+                ))}
+              </div>
+            )}
+            {aiError && !aiLoading && (
+              <div className="flex items-center gap-2 text-amber-400 text-sm">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{aiError}</span>
+              </div>
+            )}
+            {aiComment && !aiLoading && (
+              <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
+                {aiComment}
+              </p>
+            )}
+          </div>
+          <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
+            {([
+              { label: 'Health Score', v: `${health.total}/100` },
+              { label: 'Margine medio', v: fmtPct(weightedMargin) },
+              { label: 'Fatturato a rischio', v: fmtPct(riskRevenuePct) },
+            ]).map(({ label, v }) => (
+              <div key={label} className="text-center">
+                <p className="text-[10px] text-slate-500 mb-1">{label}</p>
+                <p className="text-sm font-bold tabular-nums text-slate-200">{v}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Consultant note */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+              <PenLine className="w-4 h-4 text-slate-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'analisi corrente</p>
+            </div>
+          </div>
+          <textarea
+            value={consultantNote}
+            onChange={e => {
+              setConsultantNote(e.target.value);
+              localStorage.setItem(noteKey, e.target.value);
+            }}
+            placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
+            className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
+          />
+          <div className="flex items-center justify-between mt-3">
+            <p className="text-[10px] text-slate-400">Salvato automaticamente nel browser</p>
+            {consultantNote && (
+              <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
+            )}
+          </div>
         </div>
       </div>
 
