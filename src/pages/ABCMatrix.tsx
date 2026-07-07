@@ -13,7 +13,8 @@ import {
   MessageSquareText, PenLine,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { exportPDF } from '../lib/exportPDF';
+import { downloadPDF } from '../lib/exportPDF';
+import ABCMatrixPDF, { type EnrichedAction } from '../lib/pdf/ABCMatrixPDF';
 import {
   calculate, parseGenericRows, whatIfSimulate,
   buildMigration, aggregateByCategory, SEGMENTS,
@@ -185,7 +186,6 @@ export default function ABCMatrix() {
   const [parseWarnings, setParseWarnings]       = useState<string[]>([]);
   const uploadInputRef  = useRef<HTMLInputElement>(null);
   const mainInputRef    = useRef<HTMLInputElement>(null);
-  const pdfRef          = useRef<HTMLDivElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const { token } = useAuth();
@@ -409,10 +409,30 @@ export default function ABCMatrix() {
   }
 
   async function handleExportPDF() {
-    if (!pdfRef.current || exportingPdf) return;
+    if (exportingPdf) return;
     setExportingPdf(true);
-    try { await exportPDF(pdfRef.current, 'abc-analisi.pdf'); }
-    finally { setExportingPdf(false); }
+    try {
+      await downloadPDF(
+        <ABCMatrixPDF
+          products={products}
+          totalRevenue={totalRevenue}
+          totalProfit={totalProfit}
+          weightedMargin={weightedMargin}
+          gini={gini}
+          paretoIndex={paretoIndex}
+          starRevenuePct={starRevenuePct}
+          riskRevenuePct={riskRevenuePct}
+          belowAvgCount={belowAvgCount}
+          matrix={matrix}
+          health={health}
+          enrichedActions={enrichedActions.map(({ icon: _icon, ...rest }) => rest) as EnrichedAction[]}
+          totalImpact={totalImpact}
+          aiComment={aiComment}
+          consultantNote={consultantNote}
+        />,
+        'abc-analisi.pdf',
+      );
+    } finally { setExportingPdf(false); }
   }
 
   // ── Upload screen ─────────────────────────────────────────────────────────
@@ -455,7 +475,7 @@ export default function ABCMatrix() {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div ref={pdfRef} className="p-6 space-y-6 max-w-7xl">
+    <div className="p-6 space-y-6 max-w-7xl">
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between flex-wrap gap-3">

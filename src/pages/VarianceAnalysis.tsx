@@ -10,7 +10,8 @@ import {
   CheckCircle2, TrendingUp, ChevronDown, ChevronRight,
   RotateCcw, X, Info, MessageSquareText, PenLine,
 } from 'lucide-react';
-import { exportPDF } from '../lib/exportPDF';
+import { downloadPDF } from '../lib/exportPDF';
+import VariancePDF from '../lib/pdf/VariancePDF';
 import {
   parseExcelToVarRows, extractPeriods, extractFilterOptions,
   filterRowsByPeriodAndFilters, computeVarianceEffects,
@@ -418,7 +419,6 @@ export default function VarianceAnalysis() {
   const [dragging, setDragging]       = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const uploadRef                     = useRef<HTMLInputElement>(null);
-  const pdfRef                        = useRef<HTMLDivElement>(null);
 
   // ── Period / filter state ───────────────────────────────────────────────────
   const [p1Keys, setP1Keys]           = useState<string[]>([]);
@@ -625,7 +625,7 @@ export default function VarianceAnalysis() {
 
   return (
     <div className="min-h-full bg-slate-50">
-      <div ref={pdfRef} className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -635,13 +635,23 @@ export default function VarianceAnalysis() {
               Effetti Volume, Mix, Prezzo e Costo sui margini percentuali
             </p>
           </div>
-          {canShowResults && (
+          {canShowResults && effects && (
             <button
               onClick={async () => {
-                if (!pdfRef.current || exportingPdf) return;
+                if (exportingPdf) return;
                 setExportingPdf(true);
-                try { await exportPDF(pdfRef.current, 'varianza-margini.pdf'); }
-                finally { setExportingPdf(false); }
+                try {
+                  await downloadPDF(
+                    <VariancePDF
+                      effects={effects}
+                      p1Label={p1Keys.join(', ')}
+                      p2Label={p2Keys.join(', ')}
+                      aiComment={aiComment}
+                      consultantNote={consultantNote}
+                    />,
+                    'varianza-margini.pdf',
+                  );
+                } finally { setExportingPdf(false); }
               }}
               disabled={exportingPdf}
               className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"

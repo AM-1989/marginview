@@ -1,34 +1,13 @@
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
-
-export async function exportPDF(element: HTMLElement, filename: string): Promise<void> {
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    logging: false,
-    backgroundColor: '#f8fafc',
-  });
-
-  const imgData = canvas.toDataURL('image/png');
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-  const pageW = pdf.internal.pageSize.getWidth();
-  const pageH = pdf.internal.pageSize.getHeight();
-  const imgW  = pageW;
-  const imgH  = (canvas.height * pageW) / canvas.width;
-
-  let heightLeft = imgH;
-  let position   = 0;
-
-  pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
-  heightLeft -= pageH;
-
-  while (heightLeft > 0) {
-    position -= pageH;
-    pdf.addPage();
-    pdf.addImage(imgData, 'PNG', 0, position, imgW, imgH);
-    heightLeft -= pageH;
-  }
-
-  pdf.save(filename);
+import { pdf } from '@react-pdf/renderer';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function downloadPDF(doc: React.ReactElement<any>, filename: string): Promise<void> {
+  const blob = await pdf(doc).toBlob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

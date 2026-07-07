@@ -8,7 +8,8 @@ import {
   FileDown, Plus, Trash2, Activity, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { exportPDF } from '../lib/exportPDF';
+import { downloadPDF } from '../lib/exportPDF';
+import BalancePDF from '../lib/pdf/BalancePDF';
 import { calculateBalanceKPIs } from '../lib/balanceAnalysis';
 import type { BalanceInputYear, BalanceKPI } from '../types';
 
@@ -161,7 +162,6 @@ export default function BalanceAnalysis() {
   const [addingYear, setAddingYear] = useState(false);
   const [newYearVal, setNewYearVal] = useState('');
   const newYearRef = useRef<HTMLInputElement>(null);
-  const pdfRef = useRef<HTMLDivElement>(null);
 
   const [aiComment, setAiComment]   = useState<string | null>(null);
   const [aiLoading, setAiLoading]   = useState(false);
@@ -266,7 +266,7 @@ export default function BalanceAnalysis() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div ref={pdfRef} className="min-h-full flex flex-col bg-slate-50">
+    <div className="min-h-full flex flex-col bg-slate-50">
 
       {/* Header */}
       <div className="px-6 pt-6 pb-0 flex items-center justify-between gap-4 flex-wrap">
@@ -279,13 +279,24 @@ export default function BalanceAnalysis() {
             <p className="text-xs text-slate-500">KPI Finanziari — {years.length} anni</p>
           </div>
         </div>
-        {tab === 'dashboard' && (
+        {tab === 'dashboard' && selKpi && selInput && (
           <button
             onClick={async () => {
-              if (!pdfRef.current || exportingPdf) return;
+              if (exportingPdf) return;
               setExportingPdf(true);
-              try { await exportPDF(pdfRef.current, 'bilancio-kpi.pdf'); }
-              finally { setExportingPdf(false); }
+              try {
+                await downloadPDF(
+                  <BalancePDF
+                    kpis={kpis}
+                    inputs={years}
+                    selKpi={selKpi}
+                    selInput={selInput}
+                    aiComment={aiComment}
+                    consultantNote={userNote}
+                  />,
+                  `bilancio-${selKpi.anno}.pdf`,
+                );
+              } finally { setExportingPdf(false); }
             }}
             disabled={exportingPdf}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
