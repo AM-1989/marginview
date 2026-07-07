@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
-  CheckCircle2, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
+  CheckCircle2, TrendingUp, ChevronDown, ChevronRight,
   RotateCcw, X, Info, MessageSquareText, PenLine,
 } from 'lucide-react';
 import { exportPDF } from '../lib/exportPDF';
@@ -75,332 +75,14 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   );
 }
 
-// ─── 3-Level Hierarchical Mix Table ──────────────────────────────────────────
+// ─── Category-level driver type ──────────────────────────────────────────────
 
-interface ReferenzaNode {
-  line: ComparedLine;
-  effPrezzo: number;
-  effCosto: number;
-}
-
-interface BrandNode {
-  brand: string;
-  mixContrib: number;       // decimal (0.012 = 1.2 pp)
-  marginPct1: number | null;
-  marginPct2: number | null;
-  referenze: ReferenzaNode[];
-}
-
-interface CategoriaNode {
+interface CatDriver {
   categoria: string;
-  mixContrib: number;
   marginPct1: number | null;
   marginPct2: number | null;
-  brands: BrandNode[];
-}
-
-function buildHierarchicalMixData(effects: EffectsResult): CategoriaNode[] {
-  const { lines, totalRevM, totalRev1, totalRev2 } = effects;
-
-  type BrandBucket = {
-    rev1: number; cost1: number; rev2: number; cost2: number;
-    mixContrib: number; referenze: ReferenzaNode[];
-  };
-
-  const catMap = new Map<string, {
-    rev1: number; cost1: number; rev2: number; cost2: number;
-    mixContrib: number;
-    brands: Map<string, BrandBucket>;
-  }>();
-
-  for (const l of lines) {
-    const cat   = l.categoria.trim() || 'N/D';
-    const brand = l.brand.trim()     || 'N/D';
-
-    const m1 = l.price1Effective > 0
-      ? (l.price1Effective - l.unitCost1Effective) / l.price1Effective : 0;
-    const shareM  = totalRevM  > 0 ? (l.q2 * l.price1Effective) / totalRevM  : 0;
-    const shareP1 = totalRev1  > 0 ? (l.q1 * l.price1Effective) / totalRev1  : 0;
-    const mixC = m1 * (shareM - shareP1);
-
-    const cvM = l.q2 * l.unitCost1Effective;
-    const rvM = l.q2 * l.price1Effective;
-    const mc  = (margin: number, rev: number) => rev > 0 ? margin / rev : 0;
-    const effPrezzo = mc(l.rev2 - cvM, totalRev2) - mc(rvM - cvM, totalRevM);
-    const effCosto  = mc(l.rev2 - l.cost2, totalRev2) - mc(l.rev2 - cvM, totalRev2);
-
-    if (!catMap.has(cat)) {
-      catMap.set(cat, { rev1: 0, cost1: 0, rev2: 0, cost2: 0, mixContrib: 0, brands: new Map() });
-    }
-    const cd = catMap.get(cat)!;
-    cd.rev1 += l.rev1; cd.cost1 += l.cost1;
-    cd.rev2 += l.rev2; cd.cost2 += l.cost2;
-    cd.mixContrib += mixC;
-
-    if (!cd.brands.has(brand)) {
-      cd.brands.set(brand, { rev1: 0, cost1: 0, rev2: 0, cost2: 0, mixContrib: 0, referenze: [] });
-    }
-    const bd = cd.brands.get(brand)!;
-    bd.rev1 += l.rev1; bd.cost1 += l.cost1;
-    bd.rev2 += l.rev2; bd.cost2 += l.cost2;
-    bd.mixContrib += mixC;
-    bd.referenze.push({ line: l, effPrezzo, effCosto });
-  }
-
-  const nodes: CategoriaNode[] = [];
-  for (const [cat, cd] of catMap.entries()) {
-    const brands: BrandNode[] = [];
-    for (const [brand, bd] of cd.brands.entries()) {
-      brands.push({
-        brand,
-        mixContrib: bd.mixContrib,
-        marginPct1: bd.rev1 > 0 ? (bd.rev1 - bd.cost1) / bd.rev1 : null,
-        marginPct2: bd.rev2 > 0 ? (bd.rev2 - bd.cost2) / bd.rev2 : null,
-        referenze: bd.referenze.sort(
-          (a, b) => Math.abs(b.effPrezzo + b.effCosto) - Math.abs(a.effPrezzo + a.effCosto),
-        ),
-      });
-    }
-    brands.sort((a, b) => Math.abs(b.mixContrib) - Math.abs(a.mixContrib));
-    nodes.push({
-      categoria: cat,
-      mixContrib: cd.mixContrib,
-      marginPct1: cd.rev1 > 0 ? (cd.rev1 - cd.cost1) / cd.rev1 : null,
-      marginPct2: cd.rev2 > 0 ? (cd.rev2 - cd.cost2) / cd.rev2 : null,
-      brands,
-    });
-  }
-  return nodes.sort((a, b) => Math.abs(b.mixContrib) - Math.abs(a.mixContrib));
-}
-
-// Level 3 — referenza rows (inside brand expansion)
-function BrandRow({
-  node, brandKey, expanded, onToggle,
-}: {
-  node: BrandNode; brandKey: string; expanded: boolean; onToggle: () => void;
-}) {
-  return (
-    <>
-      <tr
-        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
-        onClick={onToggle}
-      >
-        <td className="px-4 py-2.5 text-xs font-medium text-slate-700">
-          <div className="flex items-center gap-1.5">
-            {expanded
-              ? <ChevronDown  className="w-3 h-3 text-slate-400 flex-shrink-0" />
-              : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />
-            }
-            {node.brand}
-          </div>
-        </td>
-        <td className={`px-4 py-2.5 text-xs text-right tabular-nums font-semibold ${clrPp(node.mixContrib)}`}>
-          {fmtPp(node.mixContrib)}
-        </td>
-        <td className="px-4 py-2.5 text-xs text-right tabular-nums text-slate-600">
-          {nd(node.marginPct1, v => fmtPct(v * 100))}
-        </td>
-        <td className="px-4 py-2.5 text-xs text-right tabular-nums text-slate-600">
-          {nd(node.marginPct2, v => fmtPct(v * 100))}
-        </td>
-      </tr>
-      {expanded && (
-        <tr key={`${brandKey}-ref`}>
-          <td colSpan={4} className="p-0 bg-white">
-            <div className="ml-6 border-l-2 border-blue-100">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-blue-50/60 border-b border-blue-100">
-                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Codice</th>
-                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Descrizione</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Eff. Prezzo</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Eff. Costo</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
-                    <th className="px-4 py-2 text-center text-[9px] font-bold text-slate-400 uppercase tracking-wide">Stato</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {node.referenze.map(({ line: l, effPrezzo, effCosto }) => (
-                    <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors text-xs">
-                      <td className="px-4 py-2 font-mono text-[9px] text-slate-400 whitespace-nowrap">{l.codice}</td>
-                      <td className="px-4 py-2 text-slate-600 max-w-[220px] truncate" title={l.descrizione}>
-                        {l.descrizione || '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                        {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
-                      </td>
-                      <td className={`px-4 py-2 text-right tabular-nums font-semibold ${l.presence === 'both' ? clrPp(effPrezzo) : 'text-slate-300'}`}>
-                        {l.presence === 'both' ? fmtPp(effPrezzo) : '—'}
-                      </td>
-                      <td className={`px-4 py-2 text-right tabular-nums font-semibold ${l.presence === 'both' ? clrPp(effCosto) : 'text-slate-300'}`}>
-                        {l.presence === 'both' ? fmtPp(effCosto) : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                        {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        <PresenceBadge presence={l.presence} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-// Level 2 — brand rows with nested referenze (inside categoria expansion)
-function CategoriaRow({
-  node, expanded, onToggle, expandedBrands, onToggleBrand,
-}: {
-  node: CategoriaNode;
-  expanded: boolean;
-  onToggle: () => void;
-  expandedBrands: Set<string>;
-  onToggleBrand: (key: string) => void;
-}) {
-  return (
-    <>
-      <tr
-        className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
-        onClick={onToggle}
-      >
-        <td className="px-4 py-3 text-xs font-semibold text-slate-800">
-          <div className="flex items-center gap-1.5">
-            {expanded
-              ? <ChevronDown  className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            }
-            {node.categoria}
-            <span className="text-[10px] font-normal text-slate-400 ml-1">{node.brands.length} brand</span>
-          </div>
-        </td>
-        <td className={`px-4 py-3 text-xs text-right tabular-nums font-bold ${clrPp(node.mixContrib)}`}>
-          {fmtPp(node.mixContrib)}
-        </td>
-        <td className="px-4 py-3 text-xs text-right tabular-nums text-slate-700">
-          {nd(node.marginPct1, v => fmtPct(v * 100))}
-        </td>
-        <td className="px-4 py-3 text-xs text-right tabular-nums text-slate-700">
-          {nd(node.marginPct2, v => fmtPct(v * 100))}
-        </td>
-      </tr>
-      {expanded && (
-        <tr key={`${node.categoria}-brands`} className="border-b border-slate-200">
-          <td colSpan={4} className="p-0 bg-slate-50/40">
-            <div className="ml-4 border-l-2 border-slate-300">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200">
-                    <th className="px-4 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Brand</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Contributo Mix Brand</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
-                    <th className="px-4 py-2 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {node.brands.map(brand => {
-                    const bk = `${node.categoria}||${brand.brand}`;
-                    return (
-                      <BrandRow
-                        key={bk}
-                        node={brand}
-                        brandKey={bk}
-                        expanded={expandedBrands.has(bk)}
-                        onToggle={() => onToggleBrand(bk)}
-                      />
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className={`border-t-2 border-slate-300 text-xs font-bold ${node.mixContrib >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-                    <td className="px-4 py-2 text-slate-700">Σ {node.categoria}</td>
-                    <td className={`px-4 py-2 text-right tabular-nums ${clrPp(node.mixContrib)}`}>{fmtPp(node.mixContrib)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">{nd(node.marginPct1, v => fmtPct(v * 100))}</td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">{nd(node.marginPct2, v => fmtPct(v * 100))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function HierarchicalMixTable({ effects }: { effects: EffectsResult }) {
-  const [expandedCats,   setExpandedCats]   = useState<Set<string>>(new Set());
-  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
-
-  const data = useMemo(() => buildHierarchicalMixData(effects), [effects]);
-  const totalMixContrib = data.reduce((s, c) => s + c.mixContrib, 0);
-
-  const toggleCat = (cat: string) => setExpandedCats(prev => {
-    const s = new Set(prev); s.has(cat) ? s.delete(cat) : s.add(cat); return s;
-  });
-  const toggleBrand = (key: string) => setExpandedBrands(prev => {
-    const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s;
-  });
-
-  const balanceOk = Math.abs(totalMixContrib - effects.effMix) < 1e-6;
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-100">
-        <h3 className="text-sm font-semibold text-slate-800">Scomposizione Mix Gerarchica</h3>
-        <p className="text-xs text-slate-400 mt-0.5">
-          L1: Categoria · L2: Brand (espandi ▶) · L3: Referenza con Eff. Prezzo e Eff. Costo (solo effetti reali sulla singola referenza)
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-4 py-2.5 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide">Categoria</th>
-              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">Contributo Mix Categoria</th>
-              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P1</th>
-              <th className="px-4 py-2.5 text-right text-[9px] font-bold text-slate-400 uppercase tracking-wide">M% P2</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map(cat => (
-              <CategoriaRow
-                key={cat.categoria}
-                node={cat}
-                expanded={expandedCats.has(cat.categoria)}
-                onToggle={() => toggleCat(cat.categoria)}
-                expandedBrands={expandedBrands}
-                onToggleBrand={toggleBrand}
-              />
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className={`border-t-2 border-slate-300 text-xs font-bold ${totalMixContrib >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
-              <td className="px-4 py-2.5 text-slate-800">TOTALE MIX</td>
-              <td className={`px-4 py-2.5 text-right tabular-nums ${clrPp(totalMixContrib)}`}>{fmtPp(totalMixContrib)}</td>
-              <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{fmtPct(effects.marginPctP1 * 100)}</td>
-              <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">{fmtPct(effects.marginPctP2 * 100)}</td>
-            </tr>
-            <tr className="bg-blue-50/40 text-[9px] border-t border-blue-100">
-              <td colSpan={4} className="px-4 py-1.5 text-slate-500">
-                Σ Mix Categoria = {fmtPp(totalMixContrib)} · Eff. Mix totale = {fmtPp(effects.effMix)}{' '}
-                {balanceOk
-                  ? <span className="text-emerald-600 font-bold">✓</span>
-                  : <span className="text-red-500 font-bold">⚠ diff {((totalMixContrib - effects.effMix) * 100).toFixed(4)} pp</span>
-                }
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
-  );
+  deltaMarginPct: number | null;
+  rev2: number;
 }
 
 // ─── Waterfall tooltip ────────────────────────────────────────────────────────
@@ -601,6 +283,27 @@ function DriverCard({ line, rank }: { line: ComparedLine; rank: number }) {
   );
 }
 
+// ─── Category driver card ─────────────────────────────────────────────────────
+
+function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
+  const delta = cat.deltaMarginPct ?? 0;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <div className="flex items-start justify-between mb-2">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{rank}</span>
+        <span className={`text-sm font-bold tabular-nums ${clrPp(delta)}`}>{fmtPp(delta)}</span>
+      </div>
+      <p className="text-sm font-semibold text-slate-800 mb-2 truncate" title={cat.categoria}>
+        {cat.categoria}
+      </p>
+      <div className="flex gap-3 text-[10px] text-slate-500 pt-1">
+        <p><span className="font-medium">M% P1:</span> {cat.marginPct1 !== null ? fmtPct(cat.marginPct1 * 100) : 'N/D'}</p>
+        <p><span className="font-medium">M% P2:</span> {cat.marginPct2 !== null ? fmtPct(cat.marginPct2 * 100) : 'N/D'}</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Presence badge ───────────────────────────────────────────────────────────
 
 function PresenceBadge({ presence }: { presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed' }) {
@@ -725,389 +428,10 @@ function EffectsTableRow({
   );
 }
 
-// ─── Verifica row ─────────────────────────────────────────────────────────────
-
-function VerifyRow({ group }: { group: TableGroup }) {
-  const ok1 = group.rev1 > 0
-    ? Math.abs((group.rev1 - group.cost1) - group.margin1) < 0.01 &&
-      group.marginPct1 !== null &&
-      Math.abs(group.margin1 / group.rev1 - group.marginPct1) < 0.001
-    : true;
-  const ok2 = group.rev2 > 0
-    ? Math.abs((group.rev2 - group.cost2) - group.margin2) < 0.01 &&
-      group.marginPct2 !== null &&
-      Math.abs(group.margin2 / group.rev2 - group.marginPct2) < 0.001
-    : true;
-  const allOk = ok1 && ok2;
-
-  return (
-    <tr className="border-b border-slate-100 hover:bg-slate-50 text-xs">
-      <td className="px-4 py-3 text-slate-700 font-medium">{group.categoria || group.brand || group.key}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1 > 0 ? fmtEur.format(group.rev1) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1 > 0 ? fmtEur.format(group.cost1) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1 > 0 ? fmtEur.format(group.margin1) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{nd(group.marginPct1, v => fmtPct(v * 100))}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2 > 0 ? fmtEur.format(group.rev2) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2 > 0 ? fmtEur.format(group.cost2) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2 > 0 ? fmtEur.format(group.margin2) : 'N/D'}</td>
-      <td className="px-4 py-3 tabular-nums text-right text-slate-600">{nd(group.marginPct2, v => fmtPct(v * 100))}</td>
-      <td className={`px-4 py-3 tabular-nums text-right font-semibold ${group.marginPct1 !== null && group.marginPct2 !== null ? clrPp(group.marginPct2 - group.marginPct1) : 'text-slate-400'}`}>
-        {group.marginPct1 !== null && group.marginPct2 !== null ? fmtPp(group.marginPct2 - group.marginPct1) : 'N/D'}
-      </td>
-      <td className="px-4 py-3 text-center">
-        {allOk
-          ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mx-auto" />
-          : <AlertTriangle className="w-4 h-4 text-amber-500 mx-auto" />
-        }
-      </td>
-    </tr>
-  );
-}
-
-// ─── Detail row ───────────────────────────────────────────────────────────────
-// "Contributo a ΔM%" = margin€P2_cat/totalRev2 - margin€P1_cat/totalRev1
-// Somma su tutti i gruppi = marginPctP2 - marginPctP1 (quadratura garantita).
-
-function DetailTableRow({ group, expanded, onToggle, isGrouped, totalRev1, totalRev2 }: {
-  group: TableGroup; expanded: boolean; onToggle: () => void; isGrouped: boolean;
-  totalRev1: number; totalRev2: number;
-}) {
-  const hasChildren = isGrouped && group.lines.length > 0;
-
-  const contributo = (totalRev2 > 0 ? group.margin2 / totalRev2 : 0)
-                   - (totalRev1 > 0 ? group.margin1 / totalRev1 : 0);
-
-  return (
-    <>
-      <tr
-        className={`border-b border-slate-100 hover:bg-slate-50 transition-colors text-xs ${hasChildren ? 'cursor-pointer' : ''}`}
-        onClick={hasChildren ? onToggle : undefined}
-      >
-        <td className="px-4 py-3 text-slate-700 font-medium">
-          <div className="flex items-center gap-1.5">
-            {hasChildren && (
-              expanded
-                ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            )}
-            {isGrouped
-              ? `${group.categoria || group.brand || group.key}${group.lines.length > 1 ? ` — ${group.lines.length} prodotti` : ''}`
-              : (group.lines[0]?.descrizione || group.key)
-            }
-          </div>
-        </td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1  > 0 ? fmtEur.format(group.rev1) : 'N/D'}</td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev1  > 0 ? fmtEur.format(group.cost1) : 'N/D'}</td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{nd(group.marginPct1, v => fmtPct(v * 100))}</td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2  > 0 ? fmtEur.format(group.rev2) : 'N/D'}</td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{group.rev2  > 0 ? fmtEur.format(group.cost2) : 'N/D'}</td>
-        <td className="px-4 py-3 tabular-nums text-right text-slate-600">{nd(group.marginPct2, v => fmtPct(v * 100))}</td>
-        {/* Contributo a ΔM% — pesato su fatturato totale, si somma al delta globale */}
-        <td className={`px-4 py-3 tabular-nums text-right font-semibold ${clrPp(contributo)}`}>
-          {fmtPp(contributo)}
-        </td>
-        <td className="px-4 py-3 text-center">
-          {contributo > 0
-            ? <TrendingUp className="w-4 h-4 text-emerald-500 mx-auto" />
-            : contributo < 0
-              ? <TrendingDown className="w-4 h-4 text-red-400 mx-auto" />
-              : <span className="text-slate-400 text-xs">—</span>
-          }
-        </td>
-      </tr>
-      {expanded && group.lines.map(l => {
-        const lContrib = (totalRev2 > 0 ? l.margin2 / totalRev2 : 0)
-                       - (totalRev1 > 0 ? l.margin1 / totalRev1 : 0);
-        return (
-          <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
-            <td className="px-4 py-2 pl-9 text-slate-500">
-              <div className="flex items-center gap-1.5">
-                <span>{l.descrizione || l.codice}</span>
-                <PresenceBadge presence={l.presence} />
-              </div>
-            </td>
-            {/* P1: N/D se onlyP2 */}
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.rev1) : '—')}
-            </td>
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : (l.rev1 > 0 ? fmtEur.format(l.cost1) : '—')}
-            </td>
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP2 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
-            </td>
-            {/* P2: N/D se onlyP1 */}
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.rev2) : '—')}
-            </td>
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : (l.rev2 > 0 ? fmtEur.format(l.cost2) : '—')}
-            </td>
-            <td className="px-4 py-2 tabular-nums text-right text-slate-400">
-              {l.isOnlyP1 ? <span className="text-slate-300">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
-            </td>
-            <td className={`px-4 py-2 tabular-nums text-right font-semibold ${clrPp(lContrib)}`}>
-              {fmtPp(lContrib)}
-            </td>
-            <td className="px-4 py-2 text-center text-slate-300">—</td>
-          </tr>
-        );
-      })}
-    </>
-  );
-}
-
-// ─── Technical Calculation Table (Admin only) ────────────────────────────────
-
-type TechSortKey =
-  | 'codice' | 'presenza'
-  | 'p1Raw' | 'p1Eff' | 'p2Raw' | 'p2Eff'
-  | 'c1Raw' | 'c1Eff' | 'c2Raw' | 'c2Eff'
-  | 'm1' | 'm2' | 'mix1' | 'mix2';
-
-function TechSortTh({
-  col, label, sortKey, sortDir, onSort,
-}: {
-  col: TechSortKey; label: string;
-  sortKey: TechSortKey; sortDir: 'asc' | 'desc';
-  onSort: (col: TechSortKey) => void;
-}) {
-  const active = sortKey === col;
-  return (
-    <th
-      className="px-3 py-2 text-left text-[9px] font-bold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 whitespace-nowrap"
-      onClick={() => onSort(col)}
-    >
-      {label}{active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
-    </th>
-  );
-}
-
-function TechnicalCalcTable({
-  lines, totalRev1, totalRev2,
-}: {
-  lines: ComparedLine[];
-  totalRev1: number;
-  totalRev2: number;
-}) {
-  const [search,  setSearch]  = useState('');
-  const [sortKey, setSortKey] = useState<TechSortKey>('codice');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-
-  function handleSort(col: TechSortKey) {
-    if (sortKey === col) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(col); setSortDir('asc'); }
-  }
-
-  const fmtPrice = (v: number | null) =>
-    v === null ? 'N/D' : `€${v.toFixed(4)}`;
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return lines;
-    return lines.filter(l =>
-      l.codice.toLowerCase().includes(q) || l.descrizione.toLowerCase().includes(q),
-    );
-  }, [lines, search]);
-
-  const sorted = useMemo(() => {
-    const getValue = (l: ComparedLine): number | string => {
-      switch (sortKey) {
-        case 'codice':   return l.codice;
-        case 'presenza': return l.presence;
-        case 'p1Raw':    return l.price1Raw    ?? -Infinity;
-        case 'p1Eff':    return l.price1Effective;
-        case 'p2Raw':    return l.price2Raw    ?? -Infinity;
-        case 'p2Eff':    return l.price2Effective;
-        case 'c1Raw':    return l.unitCost1Raw ?? -Infinity;
-        case 'c1Eff':    return l.unitCost1Effective;
-        case 'c2Raw':    return l.unitCost2Raw ?? -Infinity;
-        case 'c2Eff':    return l.unitCost2Effective;
-        case 'm1':       return l.marginPct1Raw ?? -Infinity;
-        case 'm2':       return l.marginPct2Raw ?? -Infinity;
-        case 'mix1':     return totalRev1 > 0 ? l.rev1 / totalRev1 : 0;
-        case 'mix2':     return totalRev2 > 0 ? l.rev2 / totalRev2 : 0;
-        default:         return '';
-      }
-    };
-    return [...filtered].sort((a, b) => {
-      const av = getValue(a);
-      const bv = getValue(b);
-      const cmp =
-        typeof av === 'string' && typeof bv === 'string'
-          ? av.localeCompare(bv)
-          : (av as number) - (bv as number);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [filtered, sortKey, sortDir, totalRev1, totalRev2]);
-
-  const sortProps = { sortKey, sortDir, onSort: handleSort };
-
-  return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">Tabella Tecnica di Calcolo</h3>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Valori effettivi usati dal motore di calcolo per ogni referenza
-          </p>
-        </div>
-        <input
-          type="text"
-          placeholder="Filtra per codice / descrizione…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-blue-200 shrink-0"
-        />
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs" style={{ minWidth: 1480 }}>
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-100">
-              <TechSortTh col="codice"   label="Codice / Descrizione" {...sortProps} />
-              <TechSortTh col="presenza" label="Presenza"             {...sortProps} />
-              <TechSortTh col="p1Raw"    label="Price P1 raw"         {...sortProps} />
-              <TechSortTh col="p1Eff"    label="Price P1 eff"         {...sortProps} />
-              <TechSortTh col="p2Raw"    label="Price P2 raw"         {...sortProps} />
-              <TechSortTh col="p2Eff"    label="Price P2 eff"         {...sortProps} />
-              <TechSortTh col="c1Raw"    label="Costo P1 raw"         {...sortProps} />
-              <TechSortTh col="c1Eff"    label="Costo P1 eff"         {...sortProps} />
-              <TechSortTh col="c2Raw"    label="Costo P2 raw"         {...sortProps} />
-              <TechSortTh col="c2Eff"    label="Costo P2 eff"         {...sortProps} />
-              <TechSortTh col="m1"       label="M% P1 raw"            {...sortProps} />
-              <TechSortTh col="m2"       label="M% P2 raw"            {...sortProps} />
-              <TechSortTh col="mix1"     label="Mix P1 %"             {...sortProps} />
-              <TechSortTh col="mix2"     label="Mix P2 %"             {...sortProps} />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr>
-                <td colSpan={14} className="px-6 py-8 text-center text-xs text-slate-400">
-                  Nessuna referenza trovata.
-                </td>
-              </tr>
-            ) : sorted.map(l => {
-              const mix1pct = totalRev1 > 0 ? (l.rev1 / totalRev1 * 100) : 0;
-              const mix2pct = totalRev2 > 0 ? (l.rev2 / totalRev2 * 100) : 0;
-              const p1Fb = l.flags.priceFallback && l.price1Raw === null;
-              const p2Fb = l.flags.priceFallback && l.price2Raw === null;
-              const c1Fb = l.flags.costFallback  && l.unitCost1Raw === null;
-              const c2Fb = l.flags.costFallback  && l.unitCost2Raw === null;
-
-              const presence = l.presence as 'both' | 'onlyP1' | 'onlyP2';
-
-              return (
-                <tr key={l.key} className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors">
-                  {/* 1. Codice / Descrizione */}
-                  <td className="px-3 py-2">
-                    <div className="font-mono text-slate-400 text-[9px] leading-none">{l.codice}</div>
-                    <div className="text-slate-700 text-[10px] max-w-[180px] truncate mt-0.5" title={l.descrizione}>
-                      {l.descrizione || '—'}
-                    </div>
-                  </td>
-
-                  {/* 2. Presenza */}
-                  <td className="px-3 py-2">
-                    {presence === 'onlyP2'
-                      ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Nuovo in P2</span>
-                      : presence === 'onlyP1'
-                        ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-100 text-orange-700 whitespace-nowrap">Uscito in P2</span>
-                        : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 whitespace-nowrap">Entrambi</span>
-                    }
-                  </td>
-
-                  {/* 3. Price P1 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
-                    {fmtPrice(l.price1Raw)}
-                  </td>
-
-                  {/* 4. Price P1 eff */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
-                    {fmtPrice(l.price1Effective)}
-                    {p1Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
-                  </td>
-
-                  {/* 5. Price P2 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
-                    {fmtPrice(l.price2Raw)}
-                  </td>
-
-                  {/* 6. Price P2 eff */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
-                    {fmtPrice(l.price2Effective)}
-                    {p2Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
-                  </td>
-
-                  {/* 7. Costo P1 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
-                    {fmtPrice(l.unitCost1Raw)}
-                  </td>
-
-                  {/* 8. Costo P1 eff */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
-                    {fmtPrice(l.unitCost1Effective)}
-                    {c1Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
-                  </td>
-
-                  {/* 9. Costo P2 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-500">
-                    {fmtPrice(l.unitCost2Raw)}
-                  </td>
-
-                  {/* 10. Costo P2 eff */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-700 font-medium">
-                    {fmtPrice(l.unitCost2Effective)}
-                    {c2Fb && <sup className="text-amber-500 font-bold ml-0.5">*</sup>}
-                  </td>
-
-                  {/* 11. M% P1 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
-                    {l.marginPct1Raw !== null ? fmtPct(l.marginPct1Raw * 100) : 'N/D'}
-                  </td>
-
-                  {/* 12. M% P2 raw */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
-                    {l.marginPct2Raw !== null ? fmtPct(l.marginPct2Raw * 100) : 'N/D'}
-                  </td>
-
-                  {/* 13. Mix P1 % */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
-                    {mix1pct.toFixed(2)}%
-                  </td>
-
-                  {/* 14. Mix P2 % */}
-                  <td className="px-3 py-2 tabular-nums text-right text-[10px] text-slate-600">
-                    {mix2pct.toFixed(2)}%
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Legend */}
-      <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/50">
-        <p className="text-[10px] text-slate-400">
-          <sup className="text-amber-500 font-bold">*</sup>
-          {' '}= valore sostituito con fallback dal periodo opposto perché mancante o zero
-        </p>
-      </div>
-    </div>
-  );
-}
-
-
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
-  const { user, token } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const { token } = useAuth();
 
   // ── Upload state ────────────────────────────────────────────────────────────
   const [rows, setRows]               = useState<VarRow[] | null>(null);
@@ -1124,9 +448,6 @@ export default function VarianceAnalysis() {
 
   // ── UI state ────────────────────────────────────────────────────────────────
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [expandedDetail, setExpandedDetail] = useState<Set<string>>(new Set());
-  const [detailView, setDetailView]   = useState<'grouped' | 'lista'>('grouped');
-  const [verifyView, setVerifyView]   = useState<'grouped' | 'lista'>('grouped');
 
   // ── AI comment + consultant note ────────────────────────────────────────────
   const [aiComment, setAiComment]       = useState<string | null>(null);
@@ -1156,6 +477,26 @@ export default function VarianceAnalysis() {
   [rowsP1, rowsP2]);
 
   const insights = useMemo(() => effects ? generateInsights(effects) : [], [effects]);
+
+  const catDrivers = useMemo((): CatDriver[] | null => {
+    if (!effects) return null;
+    const map = new Map<string, { rev1: number; cost1: number; rev2: number; cost2: number }>();
+    for (const l of effects.lines) {
+      const cat = l.categoria.trim() || 'N/D';
+      const d = map.get(cat) ?? { rev1: 0, cost1: 0, rev2: 0, cost2: 0 };
+      d.rev1 += l.rev1; d.cost1 += l.cost1;
+      d.rev2 += l.rev2; d.cost2 += l.cost2;
+      map.set(cat, d);
+    }
+    const cats: CatDriver[] = [];
+    for (const [categoria, d] of map.entries()) {
+      const marginPct1 = d.rev1 > 0 ? (d.rev1 - d.cost1) / d.rev1 : null;
+      const marginPct2 = d.rev2 > 0 ? (d.rev2 - d.cost2) / d.rev2 : null;
+      const deltaMarginPct = marginPct1 !== null && marginPct2 !== null ? marginPct2 - marginPct1 : null;
+      cats.push({ categoria, marginPct1, marginPct2, deltaMarginPct, rev2: d.rev2 });
+    }
+    return cats.filter(c => c.deltaMarginPct !== null);
+  }, [effects]);
 
   // ── AI comment: chiave localStorage + chiamata API ───────────────────────────
   const noteKey = useMemo(
@@ -1221,7 +562,6 @@ export default function VarianceAnalysis() {
       setP2Keys([]);
       setActiveFilters({});
       setExpandedGroups(new Set());
-      setExpandedDetail(new Set());
     } catch { alert('Errore lettura file. Assicurati che sia un file Excel valido.'); }
     finally { setLoading(false); }
   }, []);
@@ -1242,7 +582,6 @@ export default function VarianceAnalysis() {
   const clearFilters = () => setActiveFilters({});
 
   const toggleGroup  = (key: string) => setExpandedGroups(prev  => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
-  const toggleDetail = (key: string) => setExpandedDetail(prev  => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // STATE 1 — UPLOAD
@@ -1732,13 +1071,13 @@ export default function VarianceAnalysis() {
               </div>
             </div>
 
-            {/* ── Top Drivers ────────────────────────────────────────────────── */}
+            {/* ── Top Drivers per Prodotto ───────────────────────────────────── */}
             <div>
-              <div className="text-center mb-6">
-                <h3 className="text-lg font-bold text-slate-900">Analisi Top Drivers</h3>
-                <p className="text-sm text-slate-500 mt-1">I principali driver di varianza con dettagli completi</p>
+              <div className="mb-5">
+                <h3 className="text-base font-bold text-slate-900">Top Drivers per Prodotto</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Ranking delle referenze per impatto sulla varianza margine %</p>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {[
                   { title: 'Top 3 Variazioni', items: effects.topVariations, color: 'bg-blue-50 border-blue-200' },
                   { title: 'Top 3 Best Performers', items: effects.topBest, color: 'bg-emerald-50 border-emerald-200' },
@@ -1757,216 +1096,44 @@ export default function VarianceAnalysis() {
               </div>
             </div>
 
-            {/* ── Verifica Calcoli ───────────────────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Verifica Calcoli Margini</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Controllo correttezza dei calcoli per categorie e sottocategorie</p>
+            {/* ── Top Drivers per Categoria ──────────────────────────────────── */}
+            {catDrivers && catDrivers.length > 0 && (
+              <div>
+                <div className="mb-5">
+                  <h3 className="text-base font-bold text-slate-900">Top Drivers per Categoria</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Ranking delle categorie per impatto sulla varianza margine %</p>
                 </div>
-                <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
-                  {(['grouped', 'lista'] as const).map(v => (
-                    <button
-                      key={v}
-                      onClick={() => setVerifyView(v)}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                        verifyView === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {v === 'grouped' ? 'Raggruppato' : 'Lista'}
-                    </button>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                  {[
+                    {
+                      title: 'Top 3 Variazioni',
+                      items: [...catDrivers].sort((a, b) => Math.abs(b.deltaMarginPct!) - Math.abs(a.deltaMarginPct!)).slice(0, 3),
+                      color: 'bg-blue-50 border-blue-200',
+                    },
+                    {
+                      title: 'Top 3 Best Performers',
+                      items: [...catDrivers].sort((a, b) => b.deltaMarginPct! - a.deltaMarginPct!).slice(0, 3),
+                      color: 'bg-emerald-50 border-emerald-200',
+                    },
+                    {
+                      title: 'Top 3 Worst Performers',
+                      items: [...catDrivers].sort((a, b) => a.deltaMarginPct! - b.deltaMarginPct!).slice(0, 3),
+                      color: 'bg-red-50 border-red-200',
+                    },
+                  ].map(({ title, items, color }) => (
+                    <div key={title} className={`rounded-2xl border p-5 ${color}`}>
+                      <h4 className="text-sm font-semibold text-slate-700 mb-4">{title}</h4>
+                      {items.length === 0
+                        ? <p className="text-xs text-slate-400 text-center py-4">Nessun dato disponibile</p>
+                        : <div className="space-y-3">
+                            {items.map((c, i) => <CatDriverCard key={c.categoria} cat={c} rank={i + 1} />)}
+                          </div>
+                      }
+                    </div>
                   ))}
                 </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-50">
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wide">Categoria/Sott.</th>
-                      {['Fatt. P1','Costi P1','Marg. € P1','M% P1','Fatt. P2','Costi P2','Marg. € P2','M% P2','ΔM%','Verifica'].map(h => (
-                        <th key={h} className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wide last:text-center whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {verifyView === 'grouped'
-                      ? effects.tableGroups.map(g => <VerifyRow key={g.key} group={g} />)
-                      : effects.lines.map(l => {
-                          const mg: TableGroup = {
-                            key: l.key, brand: l.brand, categoria: l.categoria,
-                            sottocategoria: l.sottocategoria, formato: l.formato,
-                            lineCount: 1, presence: l.presence,
-                            rev1: l.rev1, cost1: l.cost1, margin1: l.margin1, marginPct1: l.marginPct1,
-                            rev2: l.rev2, cost2: l.cost2, margin2: l.margin2, marginPct2: l.marginPct2,
-                            effVolMix: null, effPrezzo: null, effCosto: null, effTotale: l.deltaMarginPct,
-                            lines: [l],
-                          };
-                          return <VerifyRow key={l.key} group={mg} />;
-                        })
-                    }
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* ── Secondary Charts ───────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Margin comparison by product line */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <h4 className="text-sm font-semibold text-slate-700 mb-1">Margin Comparison by Product Line</h4>
-                <p className="text-xs text-slate-400 mb-4">Periodo 1 vs Periodo 2 per linea prodotto</p>
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart
-                    data={effects.tableGroups.slice(0, 10).map(g => ({
-                      name: g.categoria || g.brand || g.key,
-                      'P1 %': g.marginPct1 !== null ? +(g.marginPct1 * 100).toFixed(2) : 0,
-                      'P2 %': g.marginPct2 !== null ? +(g.marginPct2 * 100).toFixed(2) : 0,
-                    }))}
-                    margin={{ top: 5, right: 10, bottom: 5, left: 10 }}
-                    barGap={2}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                    <YAxis
-                      tickFormatter={v => `${v}%`}
-                      tick={{ fontSize: 9, fill: '#94a3b8' }}
-                      axisLine={false} tickLine={false} width={40}
-                    />
-                    <Tooltip formatter={(v: unknown) => [`${Number(v).toFixed(2)}%`]} />
-                    <Bar dataKey="P1 %" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="P2 %" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Top variance drivers list */}
-              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <h4 className="text-sm font-semibold text-slate-700 mb-1">Top Variance Drivers</h4>
-                <p className="text-xs text-slate-400 mb-4">Driver principali di varianza margine %</p>
-                <div className="space-y-2">
-                  {[...effects.lines]
-                    .filter(l => l.deltaMarginPct !== null)
-                    .sort((a, b) => Math.abs(b.deltaMarginPct!) - Math.abs(a.deltaMarginPct!))
-                    .slice(0, 8)
-                    .map(l => (
-                      <div key={l.key} className="flex items-center gap-3">
-                        <span className="text-xs text-slate-600 truncate flex-1 min-w-0" title={l.descrizione || l.key}>
-                          {l.descrizione || l.key}
-                        </span>
-                        <div className="flex-1 min-w-0 bg-slate-100 rounded-full h-2 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${(l.deltaMarginPct ?? 0) >= 0 ? 'bg-emerald-400' : 'bg-red-400'}`}
-                            style={{ width: `${Math.min(Math.abs(l.deltaMarginPct! * 1000), 100)}%` }}
-                          />
-                        </div>
-                        <span className={`text-xs font-semibold tabular-nums w-20 text-right ${clrPp(l.deltaMarginPct ?? 0)}`}>
-                          {fmtPp(l.deltaMarginPct ?? 0)}
-                        </span>
-                      </div>
-                    ))
-                  }
-                </div>
-              </div>
-            </div>
-
-            {/* ── Analisi Dettagliata Varianze ───────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-800">Analisi Dettagliata delle Varianze</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Scomposizione completa delle variazioni di margine per linea di prodotto</p>
-                </div>
-                <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
-                  {(['grouped', 'lista'] as const).map(v => (
-                    <button
-                      key={v}
-                      onClick={() => setDetailView(v)}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                        detailView === v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                    >
-                      {v === 'grouped' ? 'Raggruppato' : 'Lista'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-50">
-                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wide">Linea Prodotto</th>
-                      {['Fatt. P1','Costi P1','M% P1','Fatt. P2','Costi P2','M% P2','Contributo a ΔM%','Trend'].map(h => (
-                        <th key={h} className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wide last:text-center whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detailView === 'grouped'
-                      ? effects.tableGroups.map(g => (
-                          <DetailTableRow
-                            key={g.key}
-                            group={g}
-                            expanded={expandedDetail.has(g.key)}
-                            onToggle={() => toggleDetail(g.key)}
-                            isGrouped
-                            totalRev1={effects.totalRev1}
-                            totalRev2={effects.totalRev2}
-                          />
-                        ))
-                      : effects.lines.map(l => {
-                          const mg: TableGroup = {
-                            key: l.key, brand: l.brand, categoria: l.categoria,
-                            sottocategoria: l.sottocategoria, formato: l.formato,
-                            lineCount: 1, presence: l.presence,
-                            rev1: l.rev1, cost1: l.cost1, margin1: l.margin1, marginPct1: l.marginPct1,
-                            rev2: l.rev2, cost2: l.cost2, margin2: l.margin2, marginPct2: l.marginPct2,
-                            effVolMix: null, effPrezzo: null, effCosto: null, effTotale: l.deltaMarginPct,
-                            lines: [l],
-                          };
-                          return (
-                            <DetailTableRow
-                              key={l.key} group={mg} expanded={false} onToggle={() => {}} isGrouped={false}
-                              totalRev1={effects.totalRev1} totalRev2={effects.totalRev2}
-                            />
-                          );
-                        })
-                    }
-                  </tbody>
-                  {/* Riga totale — somma contributi = deltaMarginPp (quadratura) */}
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-300 bg-slate-50 text-xs font-bold">
-                      <td className="px-4 py-3 text-slate-800">TOTALE</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalRev1)}</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalCost1)}</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtPct(effects.marginPctP1 * 100)}</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalRev2)}</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtEur.format(effects.totalCost2)}</td>
-                      <td className="px-4 py-3 tabular-nums text-right text-slate-700">{fmtPct(effects.marginPctP2 * 100)}</td>
-                      <td className={`px-4 py-3 tabular-nums text-right ${clrPp(effects.marginPctP2 - effects.marginPctP1)}`}>
-                        {fmtPp(effects.marginPctP2 - effects.marginPctP1)}
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-400">—</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-
-            {/* ── Tabella Tecnica di Calcolo (Admin only) ─────────────────────── */}
-            {isAdmin && (
-              <TechnicalCalcTable
-                lines={effects.lines}
-                totalRev1={effects.totalRev1}
-                totalRev2={effects.totalRev2}
-              />
             )}
-
-            {/* ── Scomposizione Mix Gerarchica ──────────────────────────────────── */}
-            <HierarchicalMixTable effects={effects} />
           </>
         )}
 

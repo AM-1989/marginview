@@ -1285,7 +1285,6 @@ export function computeVarianceEffects(
     .filter(l => (l.deltaMarginPct ?? 0) > 0)
     .sort((a, b) => b.deltaMarginPct! - a.deltaMarginPct!).slice(0, 3);
   const topWorst = [...withDelta]
-    .filter(l => (l.deltaMarginPct ?? 0) < 0)
     .sort((a, b) => a.deltaMarginPct! - b.deltaMarginPct!).slice(0, 3);
 
   dbg('─── Done ───────────────────────────────────────────────────────');
