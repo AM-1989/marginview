@@ -29,6 +29,11 @@ export default function Header({ currentTab }: HeaderProps) {
       {/* User info */}
       {user && (
         <div className="flex items-center gap-3">
+          {/* Avatar */}
+          <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0 select-none">
+            {(user.name ?? user.email).charAt(0).toUpperCase()}
+          </div>
+
           <div className="text-right hidden sm:block">
             <p className="text-xs font-semibold text-slate-700 leading-tight">
               {user.name ?? user.email}
