@@ -482,11 +482,21 @@ export function filterRowsByPeriodAndFilters(
 }
 
 // ─── buildReferenceKeyFn ──────────────────────────────────────────────────────
-// Scans the combined P1+P2 dataset (post-filter) to detect whether product codes
-// are unique. If a code maps to more than one distinct description, a composite
-// key (code | description) is used to avoid merging different products.
+// Scans the combined P1+P2 dataset (post-filter) to build the most granular key
+// that still uniquely identifies each product across both periods.
+//
+// Resolution order:
+//   1. code alone (if code maps to one distinct description)
+//   2. code | description (if code is ambiguous)
+//   3. code | description | categoria | sottocategoria
+//      (if the same code+description appears with different categorical attributes)
+//
+// Step 3 is critical when "Codice Materiale" is non-unique (e.g. a brand name)
+// and "Descrizione Materiale" is a size — the same (brand, size) can belong to
+// completely different subcategories that must NOT be aggregated together.
 
 function buildReferenceKeyFn(allRows: VarRow[]): (row: VarRow) => string {
+  // Step 1: code → set of descriptions
   const codeToDescs = new Map<string, Set<string>>();
   for (const r of allRows) {
     const code = normalizeStr(r.codiceMateriale);
@@ -496,13 +506,38 @@ function buildReferenceKeyFn(allRows: VarRow[]): (row: VarRow) => string {
     }
   }
 
+  // Step 2: (code|desc) → set of (brand, categoria, sottocategoria) tuples
+  // Detects when the same code+description key refers to multiple distinct products.
+  const compositeToAttrs = new Map<string, Set<string>>();
+  for (const r of allRows) {
+    const code = normalizeStr(r.codiceMateriale);
+    const descs = codeToDescs.get(code);
+    const codeUnique = !descs || descs.size <= 1;
+    const trimCode = r.codiceMateriale.trim();
+    const trimDesc = r.descrizione.trim();
+    const baseKey = codeUnique ? trimCode : (trimDesc ? `${trimCode} | ${trimDesc}` : trimCode);
+    const attrKey = `${r.brand}§${r.categoria}§${r.sottocategoria}`;
+    if (!compositeToAttrs.has(baseKey)) compositeToAttrs.set(baseKey, new Set());
+    compositeToAttrs.get(baseKey)!.add(attrKey);
+  }
+
   return (row: VarRow): string => {
     const code = row.codiceMateriale.trim();
     const desc = row.descrizione.trim();
     if (!code) return desc || '_unknown_';
+
     const descs = codeToDescs.get(normalizeStr(code));
-    const isUnique = !descs || descs.size <= 1;
-    return isUnique ? code : (desc ? `${code} | ${desc}` : code);
+    const codeUnique = !descs || descs.size <= 1;
+    const baseKey = codeUnique ? code : (desc ? `${code} | ${desc}` : code);
+
+    // If baseKey is still ambiguous, extend with categorical dimensions
+    const attrSets = compositeToAttrs.get(baseKey);
+    if (attrSets && attrSets.size > 1) {
+      const dims = [row.categoria, row.sottocategoria].filter(Boolean).join(' | ');
+      return dims ? `${baseKey} | ${dims}` : baseKey;
+    }
+
+    return baseKey;
   };
 }
 
@@ -741,13 +776,19 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   const marginPctV = revV > 0 ? (revV - costV) / revV : marginPctP1;
   const effVolume  = marginPctV - marginPctP1;
 
-  // Scenario M: actual q2_i, P1 effective prices, P1 effective costs
-  // onlyP2: q2 × price1Effective = q2 × price2Raw (fallback) → margin at P2 prices
-  // onlyP1: q2 = 0 → product disappears → negative mix contribution
+  // Scenario M: actual q2_i for "both" products only, P1 effective prices, P1 effective costs.
+  // onlyP2 products are excluded from this scenario (their impact goes to effPrezzo).
+  // Rationale: including onlyP2 at fallback prices (price1Effective = price2Raw) would
+  // conflate their full revenue contribution with a pure mix shift. Excluding them keeps
+  // Mix focused on portfolio rebalancing among stable products, while the appearance of
+  // new products (and their pricing level) is captured in the Price scenario.
+  // onlyP1 products: q2 = 0 → contribute 0 naturally → negative mix contribution.
   let revM = 0, costM = 0;
   for (const l of lines) {
-    revM  += l.q2 * l.price1Effective;
-    costM += l.q2 * l.unitCost1Effective;
+    if (l.presence !== 'onlyP2') {
+      revM  += l.q2 * l.price1Effective;
+      costM += l.q2 * l.unitCost1Effective;
+    }
   }
   const marginPctM = revM > 0 ? (revM - costM) / revM : marginPctV;
   const effMix     = marginPctM - marginPctV;
