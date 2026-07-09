@@ -11,69 +11,78 @@ export interface BalancePDFProps {
   consultantNote: string;
 }
 
-// ── Local styles ───────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 const S = StyleSheet.create({
-  // KPI section
-  kpiGrid:    { flexDirection: 'row', flexWrap: 'wrap' },
-  kpiBox:     { width: '24%', backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, padding: 9, marginRight: '1.3%', marginBottom: 7 },
-  kpiLabel:   { fontFamily: 'Helvetica-Bold', fontSize: 5.5, color: C.slate4, textTransform: 'uppercase', letterSpacing: 0.9, marginBottom: 4 },
-  kpiValue:   { fontFamily: 'Helvetica-Bold', fontSize: 17, marginBottom: 2 },
-  kpiSub:     { fontSize: 6.5, color: C.slate5 },
-  kpiContext: { fontSize: 6, color: C.slate4, marginTop: 2 },
+  // Revenue + KPI rows (flex: 1 per card, gap on container)
+  cardRow:   { flexDirection: 'row', gap: 6 },
+  card5:     { flex: 1, backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, padding: 9 },
+  kpiLabel:  { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: C.slate4, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  kpiVal:    { fontSize: 15, fontFamily: 'Helvetica-Bold', marginBottom: 2 },
+  kpiSub:    { fontSize: 6.5, color: C.slate5 },
+  kpiCtx:    { fontSize: 6, color: C.slate4, marginTop: 2 },
 
-  // Section divider
-  divider:    { height: 1, backgroundColor: C.slate2, marginVertical: 12 },
+  // Indicator table rows
+  indTable:  { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, overflow: 'hidden' },
+  indHead:   { flexDirection: 'row', backgroundColor: C.slate1, paddingVertical: 5, paddingHorizontal: 10 },
+  indHCell:  { fontSize: 6, fontFamily: 'Helvetica-Bold', color: C.slate5, textTransform: 'uppercase' },
+  indRow:    { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: C.slate1 },
+  indAlt:    { flexDirection: 'row', paddingVertical: 5, paddingHorizontal: 10, borderTopWidth: 1, borderTopColor: C.slate1, backgroundColor: C.bg },
+  indLabel:  { flex: 1, fontSize: 7, color: C.slate7 },
+  indVal:    { width: 60, textAlign: 'right', fontSize: 7, fontFamily: 'Helvetica-Bold' },
+  indBench:  { width: 72, textAlign: 'right', fontSize: 6.5, color: C.slate4 },
+  indCtx:    { width: 118, textAlign: 'right', fontSize: 6, color: C.slate4 },
 
-  // Trend row
-  trendRow:   { flexDirection: 'row', marginBottom: 6, alignItems: 'center' },
-  trendLabel: { width: 100, fontSize: 7, color: C.slate6 },
-  trendBars:  { flex: 1, flexDirection: 'row', alignItems: 'flex-end' },
-  trendYearLabel: { fontSize: 5.5, color: C.slate4, textAlign: 'center', marginTop: 2 },
+  // Trend bars
+  trendSection: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, padding: 12 },
+  trendRow:     { flexDirection: 'row', alignItems: 'flex-end', paddingBottom: 10, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: C.slate1 },
+  trendLabel:   { width: 75, fontSize: 7, color: C.slate6, paddingTop: 22 },
+  trendYearCol: { alignItems: 'center', marginRight: 6 },
+  trendYearVal: { fontSize: 6, fontFamily: 'Helvetica-Bold', marginBottom: 2 },
+  trendYearLbl: { fontSize: 5.5, color: C.slate4, marginTop: 2 },
 
-  // Indicator table
-  indicRow:   { flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: C.slate1 },
-  indicAlt:   { flexDirection: 'row', paddingVertical: 6, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: C.slate1, backgroundColor: C.bg },
-  indicLabel: { flex: 1, fontSize: 7.5, color: C.slate7 },
-  indicVal:   { width: 70, textAlign: 'right', fontFamily: 'Helvetica-Bold', fontSize: 7.5 },
-  indicBench: { width: 80, textAlign: 'right', fontSize: 7, color: C.slate4 },
+  // Balance sheet
+  bsCard:   { flex: 1, backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, padding: 10 },
+  bsTitle:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.slate5, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  bsRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: C.slate1 },
 
-  // Comment blocks
-  commentBlock:{ backgroundColor: C.dark, borderRadius: 8, padding: 14, marginBottom: 10 },
-  commentTitle:{ fontFamily: 'Helvetica-Bold', fontSize: 8, color: C.white, marginBottom: 8 },
-  commentText: { fontSize: 8, color: '#94a3b8', lineHeight: 1.6 },
-  noteBlock:   { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 14 },
-  noteTitle:   { fontFamily: 'Helvetica-Bold', fontSize: 8, color: C.dark, marginBottom: 8 },
-  noteText:    { fontSize: 8, color: C.slate6, lineHeight: 1.6 },
-  statRow:     { flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' },
-  statBox:     { flex: 1, alignItems: 'center' },
-  statLabel:   { fontSize: 6, color: '#475569', marginBottom: 2 },
-  statValue:   { fontFamily: 'Helvetica-Bold', fontSize: 9, color: C.slate3 },
+  // Comments
+  aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
+  aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
+  aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
+  noteBlock: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
+  noteTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.dark, marginBottom: 6 },
+  noteText:  { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
 });
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function kpiColor(key: string, v: number): string {
-  const thresholds: Record<string, [number, number]> = {
-    ebitdaPerc:    [5, 15],
-    ebitPerc:      [2, 10],
-    utileNettoPerc:[1, 7],
-    roe:           [5, 15],
-    roi:           [3, 10],
-    currentRatio:  [1.0, 1.5],
-    pfnEbitda:     [3, 5],
-    ccc:           [60, 90],
+  const t: Record<string, [number, number]> = {
+    ebitdaPerc:    [5, 15], ebitPerc:      [2, 10],
+    utileNettoPerc:[1, 7],  roe:           [5, 15],
+    roi:           [3, 10], currentRatio:  [1.0, 1.5],
+    pfnEbitda:     [3, 5],  ccc:           [60, 90],
   };
-  const t = thresholds[key];
-  if (!t) return C.slate7;
-  const isPfnOrCcc = key === 'pfnEbitda' || key === 'ccc';
-  if (isPfnOrCcc) {
-    return v <= t[0] ? C.emerald : v <= t[1] ? C.amber : C.red;
-  }
-  return v >= t[1] ? C.emerald : v >= t[0] ? C.amber : C.red;
+  const th = t[key];
+  if (!th) return C.slate7;
+  const inv = key === 'pfnEbitda' || key === 'ccc';
+  if (inv) return v <= th[0] ? C.emerald : v <= th[1] ? C.amber : C.red;
+  return v >= th[1] ? C.emerald : v >= th[0] ? C.amber : C.red;
 }
 
-function Header({ anno }: { anno: number }) {
+function TrendBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const W = 26; const H = 30;
+  const barH = max > 0 ? Math.max(2, (Math.abs(value) / max) * (H - 4)) : 2;
+  return (
+    <Svg width={W} height={H}>
+      <Rect x={3} y={0} width={W - 6} height={H} fill={C.slate1} rx={2} />
+      <Rect x={3} y={H - barH} width={W - 6} height={barH} fill={color} rx={2} />
+    </Svg>
+  );
+}
+
+function PdfHeader({ anno }: { anno: number }) {
   return (
     <View style={base.header}>
       <View style={base.headerLeft}>
@@ -88,138 +97,128 @@ function Header({ anno }: { anno: number }) {
   );
 }
 
-function Footer({ page, total }: { page: number; total: number }) {
+function PdfFooter({ anno }: { anno: number }) {
   return (
     <View style={base.footer} fixed>
       <Text style={base.footerBrand}>MARGINVIEW</Text>
-      <Text style={base.footerText}>Analisi Bilancio — Documento riservato</Text>
-      <Text style={base.footerText}>Pag. {page} / {total}</Text>
+      <Text style={base.footerText}>Analisi Bilancio {anno} — Documento riservato</Text>
+      <Text style={base.footerText} render={({ pageNumber, totalPages }) => `Pag. ${pageNumber} / ${totalPages}`} />
     </View>
   );
 }
 
-function TrendBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const W = 28;
-  const H = 30;
-  const barH = max > 0 ? Math.max(2, (Math.abs(value) / max) * (H - 4)) : 2;
-  return (
-    <View style={{ alignItems: 'center', marginRight: 3 }}>
-      <Svg width={W} height={H}>
-        <Rect x={4} y={0} width={W - 8} height={H} fill={C.slate1} rx={2} />
-        <Rect x={4} y={H - barH} width={W - 8} height={barH} fill={color} rx={2} />
-      </Svg>
-    </View>
-  );
-}
-
-// ── Main document ──────────────────────────────────────────────────────────────
+// ── Main document ─────────────────────────────────────────────────────────────
 
 export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consultantNote }: BalancePDFProps) {
   const anno = selKpi.anno;
 
-  const profitKPIs = [
-    { key: 'ebitdaPerc',     label: 'EBITDA %',       value: fmtPct(selKpi.ebitdaPerc),     abs: fmtEur(selKpi.ebitda),   context: 'Margine operativo lordo' },
-    { key: 'ebitPerc',       label: 'EBIT %',         value: fmtPct(selKpi.ebitPerc),       abs: fmtEur(selKpi.ebit),     context: 'Margine operativo netto' },
-    { key: 'utileNettoPerc', label: 'Utile Netto %',  value: fmtPct(selKpi.utileNettoPerc), abs: fmtEur(selKpi.utileNetto), context: 'Bottom line' },
-    { key: 'roe',            label: 'ROE',            value: fmtPct(selKpi.roe),            abs: '',                      context: 'Rendimento del capitale proprio' },
-    { key: 'roi',            label: 'ROI',            value: fmtPct(selKpi.roi),            abs: '',                      context: 'Rendimento del totale attivo' },
-  ];
-
-  const liquidityKPIs = [
-    { key: 'currentRatio', label: 'Current Ratio',   value: fmtX(selKpi.currentRatio),   bench: '> 1.0',  context: 'Attivo corrente / Passivo corrente' },
-    { key: 'quickRatio',   label: 'Quick Ratio',     value: fmtX(selKpi.quickRatio),     bench: '> 0.8',  context: 'Senza magazzino' },
-    { key: 'cashRatio',    label: 'Cash Ratio',      value: fmtX(selKpi.cashRatio),      bench: '> 0.2',  context: 'Solo liquidità immediata' },
-    { key: 'pfnEbitda',    label: 'PFN / EBITDA',    value: fmtX(selKpi.pfnEbitda),      bench: '< 3.0x', context: 'Leva finanziaria netta' },
-    { key: 'debtToEquity', label: 'Debt / Equity',   value: fmtX(selKpi.debtToEquity),   bench: '< 2.0x', context: 'Rapporto di indebitamento' },
-  ];
-
-  const workingCapKPIs = [
-    { key: 'dso', label: 'DSO — Giorni Crediti',   value: `${selKpi.dso.toFixed(0)} gg`, context: 'Crediti × 365 / Ricavi' },
-    { key: 'dio', label: 'DIO — Giorni Magazzino', value: `${selKpi.dio.toFixed(0)} gg`, context: 'Magazzino × 365 / COGS' },
-    { key: 'dpo', label: 'DPO — Giorni Debiti',    value: `${selKpi.dpo.toFixed(0)} gg`, context: 'Debiti × 365 / Acquisti' },
-    { key: 'ccc', label: 'CCC — Ciclo Cassa',      value: `${selKpi.ccc.toFixed(0)} gg`, context: 'DSO + DIO − DPO' },
-  ];
-
-  // Trend data for sparklines
   const trendKpis: { label: string; key: keyof BalanceKPI; fmt: (v: number) => string }[] = [
-    { label: 'EBITDA %',   key: 'ebitdaPerc',     fmt: fmtPct },
-    { label: 'ROE',        key: 'roe',             fmt: fmtPct },
-    { label: 'PFN/EBITDA', key: 'pfnEbitda',       fmt: fmtX  },
-    { label: 'CCC (gg)',   key: 'ccc',             fmt: v => `${v.toFixed(0)}` },
+    { label: 'EBITDA %',   key: 'ebitdaPerc', fmt: fmtPct },
+    { label: 'ROE',        key: 'roe',        fmt: fmtPct },
+    { label: 'PFN/EBITDA', key: 'pfnEbitda',  fmt: fmtX  },
+    { label: 'CCC (gg)',   key: 'ccc',        fmt: v => `${v.toFixed(0)}` },
   ];
 
   return (
     <Document>
 
-      {/* ── PAGE 1: KPIs ────────────────────────────────────────────────────── */}
+      {/* ── PAGE 1: KPIs ──────────────────────────────────────────────────── */}
       <Page size="A4" style={base.page}>
-        <Header anno={anno} />
+        <PdfHeader anno={anno} />
 
         <View style={base.body}>
 
-          {/* Revenue summary strip */}
+          {/* Conto Economico strip — 5 card flex:1 */}
           <Text style={base.sectionLabel}>Conto Economico Sintesi — {anno}</Text>
-          <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-            {[
-              { label: 'Ricavi',         value: fmtEur(selInput.ricavi),                          color: C.dark },
-              { label: 'EBITDA',         value: fmtEur(selKpi.ebitda),                            color: kpiColor('ebitdaPerc', selKpi.ebitdaPerc) },
-              { label: 'EBIT',           value: fmtEur(selKpi.ebit),                              color: kpiColor('ebitPerc', selKpi.ebitPerc) },
-              { label: 'Utile Netto',    value: fmtEur(selKpi.utileNetto),                        color: selKpi.utileNetto >= 0 ? C.emerald : C.red },
-              { label: 'Free Cash Flow', value: fmtEur(selKpi.freeCashFlow),                      color: selKpi.freeCashFlow >= 0 ? C.emerald : C.red },
-            ].map((k, i) => (
-              <View key={k.label} style={[S.kpiBox, i === 4 ? { marginRight: 0 } : {}]}>
+          <View style={S.cardRow}>
+            {([
+              { label: 'Ricavi',         val: fmtEur(selInput.ricavi),         clr: C.dark },
+              { label: 'EBITDA',         val: fmtEur(selKpi.ebitda),           clr: kpiColor('ebitdaPerc', selKpi.ebitdaPerc) },
+              { label: 'EBIT',           val: fmtEur(selKpi.ebit),             clr: kpiColor('ebitPerc', selKpi.ebitPerc) },
+              { label: 'Utile Netto',    val: fmtEur(selKpi.utileNetto),       clr: selKpi.utileNetto >= 0 ? C.emerald : C.red },
+              { label: 'Free Cash Flow', val: fmtEur(selKpi.freeCashFlow),     clr: selKpi.freeCashFlow >= 0 ? C.emerald : C.red },
+            ] as { label: string; val: string; clr: string }[]).map(k => (
+              <View key={k.label} style={S.card5}>
                 <Text style={S.kpiLabel}>{k.label}</Text>
-                <Text style={[S.kpiValue, { fontSize: 14, color: k.color }]}>{k.value}</Text>
+                <Text style={[S.kpiVal, { fontSize: 13, color: k.clr }]}>{k.val}</Text>
               </View>
             ))}
           </View>
 
-          {/* Profitability */}
+          {/* Redditività — 5 card in 2 rows using flexWrap */}
           <Text style={base.sectionLabel}>Redditività</Text>
-          <View style={S.kpiGrid}>
-            {profitKPIs.map((k, i) => (
-              <View key={k.key} style={[S.kpiBox, i === 4 ? { marginRight: 0 } : {}]}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {([
+              { key: 'ebitdaPerc',     label: 'EBITDA %',      val: fmtPct(selKpi.ebitdaPerc),     abs: fmtEur(selKpi.ebitda),   ctx: 'Margine operativo lordo' },
+              { key: 'ebitPerc',       label: 'EBIT %',        val: fmtPct(selKpi.ebitPerc),       abs: fmtEur(selKpi.ebit),     ctx: 'Margine operativo netto' },
+              { key: 'utileNettoPerc', label: 'Utile Netto %', val: fmtPct(selKpi.utileNettoPerc), abs: fmtEur(selKpi.utileNetto),ctx: 'Bottom line' },
+              { key: 'roe',            label: 'ROE',           val: fmtPct(selKpi.roe),            abs: '',                      ctx: 'Rendimento cap. proprio' },
+              { key: 'roi',            label: 'ROI',           val: fmtPct(selKpi.roi),            abs: '',                      ctx: 'Rendimento totale attivo' },
+            ] as { key: string; label: string; val: string; abs: string; ctx: string }[]).map(k => (
+              <View key={k.key} style={[S.card5, { width: '19%' }]}>
                 <Text style={S.kpiLabel}>{k.label}</Text>
-                <Text style={[S.kpiValue, { color: kpiColor(k.key, parseFloat(k.value)) }]}>{k.value}</Text>
-                {k.abs && <Text style={S.kpiSub}>{k.abs}</Text>}
-                <Text style={S.kpiContext}>{k.context}</Text>
+                <Text style={[S.kpiVal, { color: kpiColor(k.key, parseFloat(k.val)) }]}>{k.val}</Text>
+                {k.abs ? <Text style={S.kpiSub}>{k.abs}</Text> : null}
+                <Text style={S.kpiCtx}>{k.ctx}</Text>
               </View>
             ))}
           </View>
 
-          {/* Liquidity + Leverage */}
+          {/* Liquidità e Leva */}
           <Text style={base.sectionLabel}>Liquidità e Leva Finanziaria</Text>
-          <View style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, overflow: 'hidden' }}>
-            {liquidityKPIs.map((k, i) => (
-              <View key={k.key} style={i % 2 === 0 ? S.indicRow : S.indicAlt}>
-                <Text style={S.indicLabel}>{k.label}</Text>
-                <Text style={[S.indicVal, { color: kpiColor(k.key, parseFloat(k.value)) }]}>{k.value}</Text>
-                <Text style={S.indicBench}>benchmark {k.bench}</Text>
-                <Text style={[S.indicLabel, { color: C.slate4, fontSize: 6.5, flex: 0, width: 130, textAlign: 'right' }]}>{k.context}</Text>
+          <View style={S.indTable}>
+            <View style={S.indHead}>
+              <Text style={[S.indHCell, { flex: 1 }]}>Indicatore</Text>
+              <Text style={[S.indHCell, { width: 60, textAlign: 'right' }]}>Valore</Text>
+              <Text style={[S.indHCell, { width: 72, textAlign: 'right' }]}>Benchmark</Text>
+              <Text style={[S.indHCell, { width: 118, textAlign: 'right' }]}>Definizione</Text>
+            </View>
+            {([
+              { key: 'currentRatio', label: 'Current Ratio',  val: fmtX(selKpi.currentRatio),  bench: '> 1.0',  ctx: 'Attivo corrente / Passivo corrente' },
+              { key: 'quickRatio',   label: 'Quick Ratio',    val: fmtX(selKpi.quickRatio),    bench: '> 0.8',  ctx: 'Liquidità rapida (senza magazzino)' },
+              { key: 'cashRatio',    label: 'Cash Ratio',     val: fmtX(selKpi.cashRatio),     bench: '> 0.2',  ctx: 'Solo liquidità immediata' },
+              { key: 'pfnEbitda',    label: 'PFN / EBITDA',   val: fmtX(selKpi.pfnEbitda),     bench: '< 3.0x', ctx: 'Leva finanziaria netta' },
+              { key: 'debtToEquity', label: 'Debt / Equity',  val: fmtX(selKpi.debtToEquity),  bench: '< 2.0x', ctx: 'Rapporto di indebitamento' },
+            ] as { key: string; label: string; val: string; bench: string; ctx: string }[]).map((k, i) => (
+              <View key={k.key} style={i % 2 === 0 ? S.indRow : S.indAlt}>
+                <Text style={S.indLabel}>{k.label}</Text>
+                <Text style={[S.indVal, { color: kpiColor(k.key, parseFloat(k.val)) }]}>{k.val}</Text>
+                <Text style={S.indBench}>{k.bench}</Text>
+                <Text style={S.indCtx}>{k.ctx}</Text>
               </View>
             ))}
           </View>
 
-          {/* Working Capital */}
+          {/* Ciclo del Capitale Circolante */}
           <Text style={base.sectionLabel}>Ciclo del Capitale Circolante</Text>
-          <View style={{ backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 6, overflow: 'hidden' }}>
-            {workingCapKPIs.map((k, i) => (
-              <View key={k.key} style={i % 2 === 0 ? S.indicRow : S.indicAlt}>
-                <Text style={S.indicLabel}>{k.label}</Text>
-                <Text style={[S.indicVal, { color: k.key === 'ccc' ? kpiColor('ccc', selKpi.ccc) : C.slate7 }]}>{k.value}</Text>
-                <Text style={[S.indicLabel, { color: C.slate4, fontSize: 6.5, flex: 0, width: 220, textAlign: 'right' }]}>{k.context}</Text>
+          <View style={S.indTable}>
+            <View style={S.indHead}>
+              <Text style={[S.indHCell, { flex: 1 }]}>Indicatore</Text>
+              <Text style={[S.indHCell, { width: 60, textAlign: 'right' }]}>Valore</Text>
+              <Text style={[S.indHCell, { width: 195, textAlign: 'right' }]}>Definizione</Text>
+            </View>
+            {([
+              { key: 'dso', label: 'DSO — Giorni Crediti',   val: `${selKpi.dso.toFixed(0)} gg`, ctx: 'Crediti × 365 / Ricavi',     highlight: false },
+              { key: 'dio', label: 'DIO — Giorni Magazzino', val: `${selKpi.dio.toFixed(0)} gg`, ctx: 'Magazzino × 365 / COGS',     highlight: false },
+              { key: 'dpo', label: 'DPO — Giorni Debiti',    val: `${selKpi.dpo.toFixed(0)} gg`, ctx: 'Debiti × 365 / Acquisti',    highlight: false },
+              { key: 'ccc', label: 'CCC — Ciclo Cassa',      val: `${selKpi.ccc.toFixed(0)} gg`, ctx: 'DSO + DIO − DPO',           highlight: true  },
+            ] as { key: string; label: string; val: string; ctx: string; highlight: boolean }[]).map((k, i) => (
+              <View key={k.key} style={i % 2 === 0 ? S.indRow : S.indAlt}>
+                <Text style={[S.indLabel, k.highlight ? { fontFamily: 'Helvetica-Bold', color: C.dark } : {}]}>{k.label}</Text>
+                <Text style={[S.indVal, { color: k.highlight ? kpiColor('ccc', selKpi.ccc) : C.slate7 }]}>{k.val}</Text>
+                <Text style={[S.indCtx, { width: 195 }]}>{k.ctx}</Text>
               </View>
             ))}
           </View>
 
         </View>
 
-        <Footer page={1} total={2} />
+        <PdfFooter anno={anno} />
       </Page>
 
-      {/* ── PAGE 2: Trend + Comments ─────────────────────────────────────────── */}
+      {/* ── PAGE 2: Trend + Stato Patrimoniale + Note ──────────────────────── */}
       <Page size="A4" style={base.page}>
-        <Header anno={anno} />
+        <PdfHeader anno={anno} />
 
         <View style={base.body}>
 
@@ -227,21 +226,21 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
           {kpis.length > 1 && (
             <>
               <Text style={base.sectionLabel}>Andamento Pluriennale</Text>
-              <View style={[base.card, { marginBottom: 0 }]}>
-                {trendKpis.map(({ label, key, fmt }) => {
-                  const values = kpis.map(k => k[key] as number);
-                  const maxV   = Math.max(...values.map(Math.abs), 0.01);
+              <View style={S.trendSection}>
+                {trendKpis.map(({ label, key, fmt }, ti) => {
+                  const vals  = kpis.map(k => k[key] as number);
+                  const maxV  = Math.max(...vals.map(Math.abs), 0.01);
                   return (
-                    <View key={label} style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: C.slate1 }}>
-                      <Text style={{ width: 80, fontSize: 7, color: C.slate6, paddingTop: 22 }}>{label}</Text>
+                    <View key={label} style={[S.trendRow, ti === trendKpis.length - 1 ? { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 } : {}]}>
+                      <Text style={S.trendLabel}>{label}</Text>
                       {kpis.map(k => {
                         const v = k[key] as number;
                         const color = kpiColor(key, v);
                         return (
-                          <View key={k.anno} style={{ alignItems: 'center', marginRight: 6 }}>
-                            <Text style={{ fontSize: 6, color, fontFamily: 'Helvetica-Bold', marginBottom: 2 }}>{fmt(v)}</Text>
+                          <View key={k.anno} style={S.trendYearCol}>
+                            <Text style={[S.trendYearVal, { color }]}>{fmt(v)}</Text>
                             <TrendBar value={v} max={maxV} color={color} />
-                            <Text style={{ fontSize: 5.5, color: C.slate4, marginTop: 2 }}>{String(k.anno)}</Text>
+                            <Text style={S.trendYearLbl}>{String(k.anno)}</Text>
                           </View>
                         );
                       })}
@@ -252,59 +251,79 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
             </>
           )}
 
-          {/* Patrimonial snapshot */}
+          {/* Stato Patrimoniale */}
           <Text style={base.sectionLabel}>Stato Patrimoniale Sintetico — {anno}</Text>
-          <View style={{ flexDirection: 'row' }}>
-            <View style={[base.card, { flex: 1, marginRight: 8 }]}>
-              <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.slate5, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 }}>Attivo</Text>
-              {[
-                ['Attivo Corrente', fmtEur(selInput.attivoCorriente)],
-                ['di cui Crediti',  fmtEur(selInput.creditiClienti)],
-                ['di cui Magazzino',fmtEur(selInput.magazzino)],
-                ['di cui Liquidità',fmtEur(selInput.liquidita)],
-                ['Totale Attivo',   fmtEur(selInput.totaleAttivo)],
-              ].map(([l, v], idx) => (
-                <View key={l} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: C.slate1 }}>
-                  <Text style={{ fontSize: 7, color: idx === 4 ? C.dark : C.slate6, fontFamily: idx === 4 ? 'Helvetica-Bold' : 'Helvetica' }}>{l}</Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+
+            <View style={S.bsCard}>
+              <Text style={S.bsTitle}>Attivo</Text>
+              {([
+                ['Attivo Corrente',  fmtEur(selInput.attivoCorriente), false],
+                ['  Crediti',        fmtEur(selInput.creditiClienti),  false],
+                ['  Magazzino',      fmtEur(selInput.magazzino),       false],
+                ['  Liquidità',      fmtEur(selInput.liquidita),       false],
+                ['Totale Attivo',    fmtEur(selInput.totaleAttivo),    true ],
+              ] as [string, string, boolean][]).map(([l, v, bold]) => (
+                <View key={l} style={S.bsRow}>
+                  <Text style={{ fontSize: 7, color: bold ? C.dark : C.slate6, fontFamily: bold ? 'Helvetica-Bold' : 'Helvetica' }}>{l}</Text>
                   <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.dark }}>{v}</Text>
                 </View>
               ))}
             </View>
-            <View style={[base.card, { flex: 1 }]}>
-              <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 7, color: C.slate5, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.8 }}>Passivo + PN</Text>
-              {[
-                ['Passivo Corrente',    fmtEur(selInput.passivoCorriente)],
-                ['di cui Deb. Forn.',   fmtEur(selInput.debitiFornitori)],
-                ['Deb. Fin. BT',        fmtEur(selInput.debitiFinanziariBT)],
-                ['Deb. Fin. LT',        fmtEur(selInput.debitiFinanziariLT)],
-                ['Patrimonio Netto',    fmtEur(selInput.patrimoniNetto)],
-              ].map(([l, v], idx) => (
-                <View key={l} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: C.slate1 }}>
-                  <Text style={{ fontSize: 7, color: idx === 4 ? C.dark : C.slate6, fontFamily: idx === 4 ? 'Helvetica-Bold' : 'Helvetica' }}>{l}</Text>
+
+            <View style={S.bsCard}>
+              <Text style={S.bsTitle}>Passivo + Patrimonio Netto</Text>
+              {([
+                ['Passivo Corrente',  fmtEur(selInput.passivoCorriente),    false],
+                ['  Deb. Fornitori',  fmtEur(selInput.debitiFornitori),     false],
+                ['Deb. Fin. BT',      fmtEur(selInput.debitiFinanziariBT),  false],
+                ['Deb. Fin. LT',      fmtEur(selInput.debitiFinanziariLT),  false],
+                ['Patrimonio Netto',  fmtEur(selInput.patrimoniNetto),      true ],
+              ] as [string, string, boolean][]).map(([l, v, bold]) => (
+                <View key={l} style={S.bsRow}>
+                  <Text style={{ fontSize: 7, color: bold ? C.dark : C.slate6, fontFamily: bold ? 'Helvetica-Bold' : 'Helvetica' }}>{l}</Text>
                   <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.dark }}>{v}</Text>
                 </View>
               ))}
             </View>
+
+          </View>
+
+          {/* KPI snapshot del periodo selezionato */}
+          <Text style={base.sectionLabel}>Riepilogo KPI — {anno}</Text>
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            {([
+              { label: 'PFN',            val: fmtEur(selInput.debitiFinanziariBT + selInput.debitiFinanziariLT - selInput.liquidita), clr: C.slate7 },
+              { label: 'EBITDA %',       val: fmtPct(selKpi.ebitdaPerc), clr: kpiColor('ebitdaPerc', selKpi.ebitdaPerc) },
+              { label: 'ROE',            val: fmtPct(selKpi.roe),        clr: kpiColor('roe', selKpi.roe) },
+              { label: 'PFN / EBITDA',   val: fmtX(selKpi.pfnEbitda),   clr: kpiColor('pfnEbitda', selKpi.pfnEbitda) },
+              { label: 'CCC (giorni)',    val: `${selKpi.ccc.toFixed(0)} gg`, clr: kpiColor('ccc', selKpi.ccc) },
+            ] as { label: string; val: string; clr: string }[]).map(k => (
+              <View key={k.label} style={[S.card5, { backgroundColor: C.white }]}>
+                <Text style={S.kpiLabel}>{k.label}</Text>
+                <Text style={[S.kpiVal, { fontSize: 13, color: k.clr }]}>{k.val}</Text>
+              </View>
+            ))}
           </View>
 
           {/* Comments */}
           {(aiComment || consultantNote) && (
             <>
-              <Text style={base.sectionLabel}>Analisi e Note</Text>
-              <View style={{ flexDirection: 'row' }}>
+              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi e Note</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
                 {aiComment && (
-                  <View style={[S.commentBlock, { flex: 1, marginRight: consultantNote ? 10 : 0 }]}>
-                    <Text style={S.commentTitle}>Commento AI — Bilancio {anno}</Text>
-                    <Text style={S.commentText}>{aiComment}</Text>
-                    <View style={S.statRow}>
-                      {[
+                  <View style={[S.aiBlock, { flex: 1 }]}>
+                    <Text style={S.aiTitle}>Commento AI — Bilancio {anno}</Text>
+                    <Text style={S.aiText}>{aiComment}</Text>
+                    <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
+                      {([
                         { label: 'EBITDA %',   v: fmtPct(selKpi.ebitdaPerc) },
                         { label: 'ROE',        v: fmtPct(selKpi.roe) },
                         { label: 'PFN/EBITDA', v: fmtX(selKpi.pfnEbitda) },
-                      ].map(({ label, v }) => (
-                        <View key={label} style={S.statBox}>
-                          <Text style={S.statLabel}>{label}</Text>
-                          <Text style={S.statValue}>{v}</Text>
+                      ]).map(({ label, v }) => (
+                        <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                          <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
+                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
                         </View>
                       ))}
                     </View>
@@ -312,7 +331,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
                 )}
                 {consultantNote && (
                   <View style={[S.noteBlock, { flex: 1 }]}>
-                    <Text style={S.noteTitle}>Commento del Consulente</Text>
+                    <Text style={S.noteTitle}>Note del Consulente</Text>
                     <Text style={S.noteText}>{consultantNote}</Text>
                   </View>
                 )}
@@ -322,8 +341,9 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
 
         </View>
 
-        <Footer page={2} total={2} />
+        <PdfFooter anno={anno} />
       </Page>
+
     </Document>
   );
 }

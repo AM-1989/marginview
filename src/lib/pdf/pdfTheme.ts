@@ -72,7 +72,7 @@ export const base = StyleSheet.create({
   headerDate: { fontSize: 8, color: C.slate5 },
   headerPage: { fontSize: 7, color: C.slate5, marginTop: 2 },
 
-  body: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 20 },
+  body: { paddingHorizontal: 32, paddingTop: 20, paddingBottom: 55 },
 
   sectionLabel: {
     fontFamily: 'Helvetica-Bold',
