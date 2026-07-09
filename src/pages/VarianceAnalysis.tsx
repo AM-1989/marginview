@@ -1301,6 +1301,7 @@ export default function VarianceAnalysis() {
       {/* ── Pagina dedicata: Variazione Margine % per Gruppo ─────────────────── */}
       {canShowResults && effects && (
         <div className="mt-2 border-t-4 border-slate-200 bg-white">
+          <div className="max-w-7xl mx-auto">
           <div className="px-6 py-5 bg-slate-900 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-white">Variazione Margine % per Gruppo</h2>
@@ -1326,6 +1327,7 @@ export default function VarianceAnalysis() {
             </div>
           </div>
           <HierarchicalBridgeTable effects={effects} allLines={effects.lines} />
+          </div>
         </div>
       )}
 
