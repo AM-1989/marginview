@@ -586,6 +586,7 @@ function FilterDropdown({
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const toggle = () => {
     if (!open && btnRef.current) setRect(btnRef.current.getBoundingClientRect());
@@ -596,6 +597,7 @@ function FilterDropdown({
     if (!open) return;
     const close = (e: MouseEvent) => {
       if (btnRef.current && btnRef.current.contains(e.target as Node)) return;
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) return;
       setOpen(false);
     };
     const onScroll = () => setOpen(false);
@@ -625,6 +627,7 @@ function FilterDropdown({
       </button>
       {open && rect && createPortal(
         <div
+          ref={dropdownRef}
           style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: rect.width, zIndex: 9999 }}
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-auto max-h-56"
         >
