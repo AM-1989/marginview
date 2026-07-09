@@ -316,13 +316,14 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 // ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
 // Pivot table matching Alessio's Excel format:
-//   Brand → Categoria → Sottocategoria
-//   Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Ref. | Price | Costo | Cos%P2
-// Brand and Categoria rows are collapsible (default collapsed).
+//   Brand → Categoria → Sottocategoria → Formato (4 levels)
+//   Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Sottocat. | Mix Ref. | Price | Costo | Cos%P2
+// Brand, Categoria and Sottocategoria rows are collapsible (default collapsed).
 
-interface HierBrandNode { brand: string; bridge: GroupBridgeResult; categorias: HierCatNode[] }
-interface HierCatNode   { cat: string;   bridge: GroupBridgeResult; subcats: HierLeafNode[]   }
-interface HierLeafNode  { subcat: string; bridge: GroupBridgeResult }
+interface HierBrandNode  { brand: string;  bridge: GroupBridgeResult; categorias: HierCatNode[]  }
+interface HierCatNode    { cat: string;    bridge: GroupBridgeResult; subcats: HierSubcatNode[]  }
+interface HierSubcatNode { subcat: string; bridge: GroupBridgeResult; formati: HierLeafNode[]    }
+interface HierLeafNode   { formato: string; bridge: GroupBridgeResult }
 
 const fmtPctV = (v: number | null) =>
   v === null || !isFinite(v) ? 'N/D' : `${(v * 100).toFixed(2)}%`;
@@ -350,13 +351,16 @@ function HierarchicalBridgeTable({
   effects: EffectsResult;
   allLines: ComparedLine[];
 }) {
-  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
-  const [expandedCats,   setExpandedCats]   = useState<Set<string>>(new Set());
+  const [expandedBrands,  setExpandedBrands]  = useState<Set<string>>(new Set());
+  const [expandedCats,    setExpandedCats]    = useState<Set<string>>(new Set());
+  const [expandedSubcats, setExpandedSubcats] = useState<Set<string>>(new Set());
 
-  const toggleBrand = useCallback((b: string) =>
-    setExpandedBrands(p => { const s = new Set(p); s.has(b) ? s.delete(b) : s.add(b); return s; }), []);
-  const toggleCat = useCallback((k: string) =>
-    setExpandedCats(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
+  const toggleBrand  = useCallback((b: string) =>
+    setExpandedBrands(p  => { const s = new Set(p); s.has(b) ? s.delete(b) : s.add(b); return s; }), []);
+  const toggleCat    = useCallback((k: string) =>
+    setExpandedCats(p    => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
+  const toggleSubcat = useCallback((k: string) =>
+    setExpandedSubcats(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
 
   const nodes = useMemo<HierBrandNode[]>(() => {
     const brandMap = new Map<string, ComparedLine[]>();
@@ -379,9 +383,18 @@ function HierarchicalBridgeTable({
           if (!scMap.has(s)) scMap.set(s, []);
           scMap.get(s)!.push(l);
         }
-        const subcats: HierLeafNode[] = [...scMap.entries()].map(([subcat, sLines]) => ({
-          subcat, bridge: computeGroupBridge(sLines),
-        }));
+        const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
+          const fmtMap = new Map<string, ComparedLine[]>();
+          for (const l of sLines) {
+            const f = l.formato || l.descrizione || l.codice || 'N/D';
+            if (!fmtMap.has(f)) fmtMap.set(f, []);
+            fmtMap.get(f)!.push(l);
+          }
+          const formati: HierLeafNode[] = [...fmtMap.entries()].map(([formato, fLines]) => ({
+            formato, bridge: computeGroupBridge(fLines),
+          }));
+          return { subcat, bridge: computeGroupBridge(sLines), formati };
+        });
         return { cat, bridge: computeGroupBridge(cLines), subcats };
       });
       return { brand, bridge: computeGroupBridge(bLines), categorias };
@@ -389,14 +402,15 @@ function HierarchicalBridgeTable({
   }, [allLines]);
 
   const md = effects.mixDecomposition;
-  const totMixRef = md.sottocategoria + md.formato + md.residuo;
+
+  const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Cat.', 'Mix Sottocat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse min-w-[860px]">
+      <table className="w-full text-xs border-collapse min-w-[960px]">
         <thead>
           <tr className="bg-slate-50 border-b-2 border-slate-200">
-            {['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Cat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'].map(h => (
+            {COLS.map(h => (
               <th key={h} className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right first:text-left">
                 {h}
               </th>
@@ -408,7 +422,7 @@ function HierarchicalBridgeTable({
             const bExp = expandedBrands.has(brand);
             return (
               <Fragment key={brand}>
-                {/* Brand row */}
+                {/* ── Brand row ── */}
                 <tr className="bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors border-b border-slate-600"
                     onClick={() => toggleBrand(brand)}>
                   <td className="px-3 py-2.5 font-bold text-white">
@@ -422,13 +436,14 @@ function HierarchicalBridgeTable({
                   <BridgeCell v={bb.effVolume} />
                   <BridgeCell v={0} alwaysZero />
                   <BridgeCell v={bb.effMixCategoria} />
+                  <BridgeCell v={bb.effMixSottocategoria} />
                   <BridgeCell v={bb.effMixReferenza} />
                   <BridgeCell v={bb.effPrezzo} />
                   <BridgeCell v={bb.effCosto} />
                   <td className="px-3 py-2.5 tabular-nums text-right text-white/80">{fmtPctV(bb.cosP2)}</td>
                 </tr>
 
-                {/* Categoria rows */}
+                {/* ── Categoria rows ── */}
                 {bExp && categorias.map(({ cat, bridge: cb, subcats }) => {
                   const catKey = `${brand}|${cat}`;
                   const cExp = expandedCats.has(catKey);
@@ -447,27 +462,58 @@ function HierarchicalBridgeTable({
                         <BridgeCell v={cb.effVolume} />
                         <BridgeCell v={0} alwaysZero />
                         <BridgeCell v={0} alwaysZero />
+                        <BridgeCell v={cb.effMixSottocategoria} />
                         <BridgeCell v={cb.effMixReferenza} />
                         <BridgeCell v={cb.effPrezzo} />
                         <BridgeCell v={cb.effCosto} />
                         <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmtPctV(cb.cosP2)}</td>
                       </tr>
 
-                      {/* Sottocategoria (leaf) rows */}
-                      {cExp && subcats.map(({ subcat, bridge: lb }) => (
-                        <tr key={`${catKey}|${subcat}`}
-                            className="bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                          <td className="px-3 py-1.5 text-slate-600 pl-14">{subcat}</td>
-                          <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(lb.cosP1)}</td>
-                          <BridgeCell v={lb.effVolume} />
-                          <BridgeCell v={0} alwaysZero />
-                          <BridgeCell v={0} alwaysZero />
-                          <BridgeCell v={lb.effMixReferenza} />
-                          <BridgeCell v={lb.effPrezzo} />
-                          <BridgeCell v={lb.effCosto} />
-                          <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(lb.cosP2)}</td>
-                        </tr>
-                      ))}
+                      {/* ── Sottocategoria rows ── */}
+                      {cExp && subcats.map(({ subcat, bridge: sb, formati }) => {
+                        const scKey = `${catKey}|${subcat}`;
+                        const sExp = expandedSubcats.has(scKey);
+                        return (
+                          <Fragment key={scKey}>
+                            <tr className="bg-white hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100"
+                                onClick={() => toggleSubcat(scKey)}>
+                              <td className="px-3 py-1.5 text-slate-600">
+                                <div className="flex items-center gap-1.5 pl-10">
+                                  {sExp ? <ChevronDown className="w-3 h-3 text-slate-300 flex-shrink-0" />
+                                        : <ChevronRight className="w-3 h-3 text-slate-300 flex-shrink-0" />}
+                                  {subcat}
+                                </div>
+                              </td>
+                              <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(sb.cosP1)}</td>
+                              <BridgeCell v={sb.effVolume} />
+                              <BridgeCell v={0} alwaysZero />
+                              <BridgeCell v={0} alwaysZero />
+                              <BridgeCell v={0} alwaysZero />
+                              <BridgeCell v={sb.effMixReferenza} />
+                              <BridgeCell v={sb.effPrezzo} />
+                              <BridgeCell v={sb.effCosto} />
+                              <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(sb.cosP2)}</td>
+                            </tr>
+
+                            {/* ── Formato (leaf) rows ── */}
+                            {sExp && formati.map(({ formato, bridge: fb }) => (
+                              <tr key={`${scKey}|${formato}`}
+                                  className="bg-slate-50/50 border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                <td className="px-3 py-1 text-slate-400 text-[10px] pl-16">{formato}</td>
+                                <td className="px-3 py-1 tabular-nums text-right text-slate-400 text-[10px]">{fmtPctV(fb.cosP1)}</td>
+                                <BridgeCell v={fb.effVolume} />
+                                <BridgeCell v={0} alwaysZero />
+                                <BridgeCell v={0} alwaysZero />
+                                <BridgeCell v={0} alwaysZero />
+                                <BridgeCell v={0} alwaysZero />
+                                <BridgeCell v={fb.effPrezzo} />
+                                <BridgeCell v={fb.effCosto} />
+                                <td className="px-3 py-1 tabular-nums text-right text-slate-400 text-[10px]">{fmtPctV(fb.cosP2)}</td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        );
+                      })}
                     </Fragment>
                   );
                 })}
@@ -475,14 +521,15 @@ function HierarchicalBridgeTable({
             );
           })}
 
-          {/* Totale complessivo */}
+          {/* ── Totale complessivo ── */}
           <tr className="bg-blue-50 border-t-2 border-blue-200">
             <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
             <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria)}`}>{fmtEff(md.categoria)}</td>
-            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(totMixRef)}`}>{fmtEff(totMixRef)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.sottocategoria)}`}>{fmtEff(md.sottocategoria)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato + md.residuo)}`}>{fmtEff(md.formato + md.residuo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
             <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP2)}</td>

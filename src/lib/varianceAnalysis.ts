@@ -1186,20 +1186,22 @@ function computeMixDecomposition(
 // Consistent with the global bridge: onlyP2 excluded from Scenario M.
 
 export interface GroupBridgeResult {
-  cosP1:           number | null;
-  cosP2:           number | null;
-  effVolume:       number;
-  effMixCategoria: number;
-  effMixReferenza: number;
-  effPrezzo:       number;
-  effCosto:        number;
+  cosP1:                number | null;
+  cosP2:                number | null;
+  effVolume:            number;
+  effMixCategoria:      number;
+  effMixSottocategoria: number;
+  effMixReferenza:      number;
+  effPrezzo:            number;
+  effCosto:             number;
   presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
 }
 
 export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   if (!lines.length) {
     return { cosP1: null, cosP2: null, effVolume: 0,
-             effMixCategoria: 0, effMixReferenza: 0, effPrezzo: 0, effCosto: 0, presence: 'both' };
+             effMixCategoria: 0, effMixSottocategoria: 0, effMixReferenza: 0,
+             effPrezzo: 0, effCosto: 0, presence: 'both' };
   }
   const kpis = calculateBaseKpis(lines);
 
@@ -1211,9 +1213,10 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   // Pure P1-only or P2-only groups: no meaningful bridge, all effects = 0
   if (kpis.totalRev1 === 0 || kpis.totalRev2 === 0) {
     return {
-      cosP1:           kpis.totalRev1 > 0 ? kpis.marginPctP1 : null,
-      cosP2:           kpis.totalRev2 > 0 ? kpis.marginPctP2 : null,
-      effVolume: 0, effMixCategoria: 0, effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
+      cosP1:  kpis.totalRev1 > 0 ? kpis.marginPctP1 : null,
+      cosP2:  kpis.totalRev2 > 0 ? kpis.marginPctP2 : null,
+      effVolume: 0, effMixCategoria: 0, effMixSottocategoria: 0,
+      effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
       presence,
     };
   }
@@ -1221,8 +1224,11 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   const eff  = calculateVarianceEffects(lines, kpis);
   const { marginPctV } = eff;
 
-  // Categoria-level scenario: redistribute each categoria's P2 total in P1 proportions.
-  // onlyP2 products have q1=0 → qS=0 (same behaviour as the full mix decomposition).
+  // Helpers: sequential mix scenarios.
+  // Each scenario redistributes P2 quantities in P1 proportions at a given hierarchy level.
+  // onlyP2 products (q1=0) naturally receive qS=0 when Q1g>0 (absorbed by "both" peers).
+
+  // Level 1 — Categoria scenario
   const catQ1 = new Map<string, number>();
   const catQ2 = new Map<string, number>();
   for (const l of lines) {
@@ -1241,16 +1247,39 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   }
   const marginPctCat    = revCat > 0 ? (revCat - costCat) / revCat : marginPctV;
   const effMixCategoria = marginPctCat - marginPctV;
-  const effMixReferenza = eff.effMix - effMixCategoria;
+
+  // Level 2 — Sottocategoria scenario (within each categoria, redistribute by subcat)
+  const scQ1 = new Map<string, number>();
+  const scQ2 = new Map<string, number>();
+  for (const l of lines) {
+    const k = `${l.categoria || 'N/D'}§${l.sottocategoria || 'N/D'}`;
+    scQ1.set(k, (scQ1.get(k) ?? 0) + l.q1);
+    scQ2.set(k, (scQ2.get(k) ?? 0) + l.q2);
+  }
+  let revSc = 0, costSc = 0;
+  for (const l of lines) {
+    const k   = `${l.categoria || 'N/D'}§${l.sottocategoria || 'N/D'}`;
+    const Q1g = scQ1.get(k) ?? 0;
+    const Q2g = scQ2.get(k) ?? 0;
+    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+    revSc  += qS * l.price1Effective;
+    costSc += qS * l.unitCost1Effective;
+  }
+  const marginPctSc          = revSc > 0 ? (revSc - costSc) / revSc : marginPctCat;
+  const effMixSottocategoria = marginPctSc - marginPctCat;
+
+  // Level 3 — Referenza residual (remaining mix after categoria + sottocategoria)
+  const effMixReferenza = eff.effMix - effMixCategoria - effMixSottocategoria;
 
   return {
-    cosP1:           kpis.marginPctP1,
-    cosP2:           kpis.marginPctP2,
-    effVolume:       eff.effVolume,
+    cosP1:                kpis.marginPctP1,
+    cosP2:                kpis.marginPctP2,
+    effVolume:            eff.effVolume,
     effMixCategoria,
+    effMixSottocategoria,
     effMixReferenza,
-    effPrezzo:       eff.effPrezzo,
-    effCosto:        eff.effCosto,
+    effPrezzo:            eff.effPrezzo,
+    effCosto:             eff.effCosto,
     presence,
   };
 }
