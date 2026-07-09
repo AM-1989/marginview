@@ -1210,11 +1210,14 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
     ? ([...presSet][0] as 'both' | 'onlyP1' | 'onlyP2')
     : 'mixed' as const;
 
-  // Pure P1-only or P2-only groups: no meaningful bridge, all effects = 0
+  // Pure P1-only or P2-only groups: no meaningful bridge, all effects = 0.
+  // Convention (matches Alessio): show the available period's margin as BOTH cosP1 and cosP2
+  // so the row appears "unchanged" (zero delta, all effects zero).
   if (kpis.totalRev1 === 0 || kpis.totalRev2 === 0) {
+    const cosP1 = kpis.totalRev1 > 0 ? kpis.marginPctP1 : kpis.marginPctP2;
+    const cosP2 = kpis.totalRev2 > 0 ? kpis.marginPctP2 : kpis.marginPctP1;
     return {
-      cosP1:  kpis.totalRev1 > 0 ? kpis.marginPctP1 : null,
-      cosP2:  kpis.totalRev2 > 0 ? kpis.marginPctP2 : null,
+      cosP1, cosP2,
       effVolume: 0, effMixCategoria: 0, effMixSottocategoria: 0,
       effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
       presence,

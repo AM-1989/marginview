@@ -401,6 +401,26 @@ function HierarchicalBridgeTable({
     });
   }, [allLines]);
 
+  // Default: expand all levels whenever data changes
+  useEffect(() => {
+    if (!nodes.length) return;
+    const brands = new Set<string>();
+    const cats   = new Set<string>();
+    const scats  = new Set<string>();
+    for (const { brand, categorias } of nodes) {
+      brands.add(brand);
+      for (const { cat, subcats } of categorias) {
+        cats.add(`${brand}|${cat}`);
+        for (const { subcat } of subcats) {
+          scats.add(`${brand}|${cat}|${subcat}`);
+        }
+      }
+    }
+    setExpandedBrands(brands);
+    setExpandedCats(cats);
+    setExpandedSubcats(scats);
+  }, [allLines]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const md = effects.mixDecomposition;
 
   const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Cat.', 'Mix Sottocat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
