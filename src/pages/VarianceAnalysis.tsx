@@ -444,23 +444,36 @@ function FilterDropdown({
   onToggle: (v: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const toggle = () => {
+    if (!open && btnRef.current) setRect(btnRef.current.getBoundingClientRect());
+    setOpen(o => !o);
+  };
 
   useEffect(() => {
     if (!open) return;
-    const handle = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    const close = (e: MouseEvent) => {
+      if (btnRef.current && btnRef.current.contains(e.target as Node)) return;
+      setOpen(false);
     };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
+    const onScroll = () => setOpen(false);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', onScroll, true);
+    };
   }, [open]);
 
   const label_text = selected.length > 0 ? `${label} (${selected.length})` : label;
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={btnRef}
+        onClick={toggle}
         className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-medium transition-all ${
           selected.length > 0
             ? 'bg-blue-600 text-white border-blue-600'
@@ -470,8 +483,11 @@ function FilterDropdown({
         <span>{label_text}</span>
         <ChevronDown size={12} className={`ml-1 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute z-30 mt-1 w-full min-w-max bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+      {open && rect && (
+        <div
+          style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: rect.width, zIndex: 9999 }}
+          className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-auto max-h-56"
+        >
           {values.map(v => (
             <label key={v} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50 cursor-pointer">
               <input
