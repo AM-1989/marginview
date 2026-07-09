@@ -1230,17 +1230,6 @@ export default function VarianceAnalysis() {
               </div>
             </div>
 
-            {/* ── Variazione Margine % per Gruppo ───────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100">
-                <h3 className="text-sm font-semibold text-slate-800">Variazione Margine % per Gruppo</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Gerarchia Brand → Categoria → Sottocategoria con bridge sequenziale. Clicca ▶ per espandere.
-                </p>
-              </div>
-              <HierarchicalBridgeTable effects={effects} allLines={effects.lines} />
-            </div>
-
             {/* ── Top Drivers per Prodotto ───────────────────────────────────── */}
             <div>
               <div className="mb-5">
@@ -1307,6 +1296,40 @@ export default function VarianceAnalysis() {
           </>
         )}
 
+      </div>
+
+      {/* ── Pagina dedicata: Variazione Margine % per Gruppo ─────────────────── */}
+      {canShowResults && effects && (
+        <div className="mt-2 border-t-4 border-slate-200 bg-white">
+          <div className="px-6 py-5 bg-slate-900 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-white">Variazione Margine % per Gruppo</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Gerarchia Brand → Categoria → Sottocategoria → Formato · bridge sequenziale degli effetti
+              </p>
+            </div>
+            <div className="flex items-center gap-6 text-right">
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P1</p>
+                <p className="text-sm font-bold text-yellow-300">{(effects.marginPctP1 * 100).toFixed(2)}%</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P2</p>
+                <p className="text-sm font-bold text-yellow-300">{(effects.marginPctP2 * 100).toFixed(2)}%</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Δ Totale</p>
+                <p className={`text-sm font-bold ${(effects.marginPctP2 - effects.marginPctP1) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {(effects.marginPctP2 - effects.marginPctP1) >= 0 ? '+' : ''}{((effects.marginPctP2 - effects.marginPctP1) * 100).toFixed(2)} pp
+                </p>
+              </div>
+            </div>
+          </div>
+          <HierarchicalBridgeTable effects={effects} allLines={effects.lines} />
+        </div>
+      )}
+
+      <div className="bg-slate-50 px-6 py-8">
         {/* ── Load new file button ───────────────────────────────────────────── */}
         <div className="flex justify-center pb-8">
           <button
