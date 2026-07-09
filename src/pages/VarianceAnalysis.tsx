@@ -345,6 +345,14 @@ function BridgeCell({ v, alwaysZero = false }: { v: number; alwaysZero?: boolean
   );
 }
 
+function CosPctCell({ v, py = 'py-2.5', size = '' }: { v: number | null; py?: string; size?: string }) {
+  return (
+    <td className={`px-3 ${py} tabular-nums text-right bg-yellow-200 text-slate-900 font-bold ${size}`}>
+      {fmtPctV(v)}
+    </td>
+  );
+}
+
 function HierarchicalBridgeTable({
   effects, allLines,
 }: {
@@ -429,12 +437,17 @@ function HierarchicalBridgeTable({
     <div className="overflow-x-auto">
       <table className="w-full text-xs border-collapse min-w-[960px]">
         <thead>
-          <tr className="bg-slate-50 border-b-2 border-slate-200">
-            {COLS.map(h => (
-              <th key={h} className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right first:text-left">
-                {h}
-              </th>
-            ))}
+          <tr className="border-b-2 border-slate-200">
+            {COLS.map(h => {
+              const isHighlight = h === 'Cos% P1' || h === 'Cos% P2';
+              return (
+                <th key={h} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap text-right first:text-left ${
+                  isHighlight ? 'bg-yellow-300 text-slate-800' : 'bg-slate-50 text-slate-500'
+                }`}>
+                  {h}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -452,7 +465,7 @@ function HierarchicalBridgeTable({
                       {brand}
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 tabular-nums text-right text-white/80">{fmtPctV(bb.cosP1)}</td>
+                  <CosPctCell v={bb.cosP1} />
                   <BridgeCell v={bb.effVolume} />
                   <BridgeCell v={0} alwaysZero />
                   <BridgeCell v={bb.effMixCategoria} />
@@ -460,7 +473,7 @@ function HierarchicalBridgeTable({
                   <BridgeCell v={bb.effMixReferenza} />
                   <BridgeCell v={bb.effPrezzo} />
                   <BridgeCell v={bb.effCosto} />
-                  <td className="px-3 py-2.5 tabular-nums text-right text-white/80">{fmtPctV(bb.cosP2)}</td>
+                  <CosPctCell v={bb.cosP2} />
                 </tr>
 
                 {/* ── Categoria rows ── */}
@@ -478,7 +491,7 @@ function HierarchicalBridgeTable({
                             {cat}
                           </div>
                         </td>
-                        <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmtPctV(cb.cosP1)}</td>
+                        <CosPctCell v={cb.cosP1} py="py-2" />
                         <BridgeCell v={cb.effVolume} />
                         <BridgeCell v={0} alwaysZero />
                         <BridgeCell v={0} alwaysZero />
@@ -486,7 +499,7 @@ function HierarchicalBridgeTable({
                         <BridgeCell v={cb.effMixReferenza} />
                         <BridgeCell v={cb.effPrezzo} />
                         <BridgeCell v={cb.effCosto} />
-                        <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmtPctV(cb.cosP2)}</td>
+                        <CosPctCell v={cb.cosP2} py="py-2" />
                       </tr>
 
                       {/* ── Sottocategoria rows ── */}
@@ -504,7 +517,7 @@ function HierarchicalBridgeTable({
                                   {subcat}
                                 </div>
                               </td>
-                              <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(sb.cosP1)}</td>
+                              <CosPctCell v={sb.cosP1} py="py-1.5" />
                               <BridgeCell v={sb.effVolume} />
                               <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={0} alwaysZero />
@@ -512,7 +525,7 @@ function HierarchicalBridgeTable({
                               <BridgeCell v={sb.effMixReferenza} />
                               <BridgeCell v={sb.effPrezzo} />
                               <BridgeCell v={sb.effCosto} />
-                              <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(sb.cosP2)}</td>
+                              <CosPctCell v={sb.cosP2} py="py-1.5" />
                             </tr>
 
                             {/* ── Formato (leaf) rows ── */}
@@ -520,7 +533,7 @@ function HierarchicalBridgeTable({
                               <tr key={`${scKey}|${formato}`}
                                   className="bg-slate-50/50 border-b border-slate-50 hover:bg-slate-50 transition-colors">
                                 <td className="px-3 py-1 text-slate-400 text-[10px] pl-16">{formato}</td>
-                                <td className="px-3 py-1 tabular-nums text-right text-slate-400 text-[10px]">{fmtPctV(fb.cosP1)}</td>
+                                <CosPctCell v={fb.cosP1} py="py-1" size="text-[10px]" />
                                 <BridgeCell v={fb.effVolume} />
                                 <BridgeCell v={0} alwaysZero />
                                 <BridgeCell v={0} alwaysZero />
@@ -528,7 +541,7 @@ function HierarchicalBridgeTable({
                                 <BridgeCell v={0} alwaysZero />
                                 <BridgeCell v={fb.effPrezzo} />
                                 <BridgeCell v={fb.effCosto} />
-                                <td className="px-3 py-1 tabular-nums text-right text-slate-400 text-[10px]">{fmtPctV(fb.cosP2)}</td>
+                                <CosPctCell v={fb.cosP2} py="py-1" size="text-[10px]" />
                               </tr>
                             ))}
                           </Fragment>
@@ -544,7 +557,7 @@ function HierarchicalBridgeTable({
           {/* ── Totale complessivo ── */}
           <tr className="bg-blue-50 border-t-2 border-blue-200">
             <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
-            <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP1)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-yellow-300 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria)}`}>{fmtEff(md.categoria)}</td>
@@ -552,7 +565,7 @@ function HierarchicalBridgeTable({
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato + md.residuo)}`}>{fmtEff(md.formato + md.residuo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
-            <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP2)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-yellow-300 text-slate-900 font-bold">{fmtPctV(effects.marginPctP2)}</td>
           </tr>
         </tbody>
       </table>
