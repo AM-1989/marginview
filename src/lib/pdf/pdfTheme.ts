@@ -93,13 +93,16 @@ export const base = StyleSheet.create({
   },
 
   footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: C.dark,
     paddingHorizontal: 32,
     paddingVertical: 10,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 'auto',
   },
   footerText: { fontSize: 7, color: C.slate5 },
   footerBrand: { fontSize: 7, color: C.violet, fontFamily: 'Helvetica-Bold' },
