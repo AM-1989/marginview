@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import {
@@ -483,7 +484,7 @@ function FilterDropdown({
         <span>{label_text}</span>
         <ChevronDown size={12} className={`ml-1 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && rect && (
+      {open && rect && createPortal(
         <div
           style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: rect.width, zIndex: 9999 }}
           className="bg-white border border-slate-200 rounded-xl shadow-xl overflow-auto max-h-56"
@@ -499,7 +500,8 @@ function FilterDropdown({
               <span className="text-slate-700 whitespace-nowrap">{v}</span>
             </label>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
