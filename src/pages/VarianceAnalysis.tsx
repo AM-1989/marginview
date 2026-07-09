@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
@@ -17,10 +17,12 @@ import {
   parseExcelToVarRows, extractPeriods, extractFilterOptions,
   filterRowsByPeriodAndFilters, computeVarianceEffects,
   FILTER_DIMS, FILTER_DIM_LABELS,
+  computeGroupBridge,
 } from '../lib/varianceAnalysis';
 import type {
   VarRow, FilterDim,
-  ComparedLine, TableGroup, WaterfallPoint, EffectsResult,
+  ComparedLine, WaterfallPoint, EffectsResult,
+  GroupBridgeResult,
 } from '../lib/varianceAnalysis';
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -310,127 +312,184 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
   );
 }
 
-// ─── Presence badge ───────────────────────────────────────────────────────────
 
-function PresenceBadge({ presence }: { presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed' }) {
-  if (presence === 'onlyP2')
-    return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Nuovo in P2</span>;
-  if (presence === 'onlyP1')
-    return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-600 whitespace-nowrap">Uscito in P2</span>;
-  return null;
+
+// ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
+// Pivot table matching Alessio's Excel format:
+//   Brand → Categoria → Sottocategoria
+//   Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Ref. | Price | Costo | Cos%P2
+// Brand and Categoria rows are collapsible (default collapsed).
+
+interface HierBrandNode { brand: string; bridge: GroupBridgeResult; categorias: HierCatNode[] }
+interface HierCatNode   { cat: string;   bridge: GroupBridgeResult; subcats: HierLeafNode[]   }
+interface HierLeafNode  { subcat: string; bridge: GroupBridgeResult }
+
+const fmtPctV = (v: number | null) =>
+  v === null || !isFinite(v) ? 'N/D' : `${(v * 100).toFixed(2)}%`;
+
+const fmtEff = (v: number) => {
+  if (!isFinite(v) || Math.abs(v) < 5e-5) return '0.00%';
+  return `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+};
+
+const clrEff = (v: number) =>
+  !isFinite(v) || Math.abs(v) < 5e-5
+    ? 'text-slate-400'
+    : v > 0 ? 'text-emerald-600 font-semibold' : 'text-red-500 font-semibold';
+
+function BridgeCell({ v, alwaysZero = false }: { v: number; alwaysZero?: boolean }) {
+  if (alwaysZero) return <td className="px-3 py-2.5 tabular-nums text-right text-slate-300">0.00%</td>;
+  return (
+    <td className={`px-3 py-2.5 tabular-nums text-right ${clrEff(v)}`}>{fmtEff(v)}</td>
+  );
 }
 
-// ─── Effects table row ────────────────────────────────────────────────────────
-// Columns: Brand | Categoria | Sottocategoria | M% P1 | Delta M% Gruppo
-//          | Eff. VolMix | Eff. Prezzo | Eff. Costo | Eff. P+C | M% P2 | Stato
-//
-// "Delta M% Gruppo" = M% P2 − M% P1 (osservato, non un effetto).
-// Identity: Delta = VolMix + Prezzo + Costo (= Eff. P+C + VolMix).
-// "Eff. P+C"        = effPrezzo + effCosto.
-
-function EffectsTableRow({
-  group, expanded, onToggle,
+function HierarchicalBridgeTable({
+  effects, allLines,
 }: {
-  group: TableGroup;
-  expanded: boolean;
-  onToggle: () => void;
+  effects: EffectsResult;
+  allLines: ComparedLine[];
 }) {
-  // Always expandable: even single-SKU groups show the reference code/description on expand
-  const hasChildren = group.lines.length > 0;
+  const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
+  const [expandedCats,   setExpandedCats]   = useState<Set<string>>(new Set());
 
-  // For pure onlyP1/P2 groups, price/cost effects are 0 by construction (not meaningful)
-  const isPureOneSide = group.presence === 'onlyP1' || group.presence === 'onlyP2';
+  const toggleBrand = useCallback((b: string) =>
+    setExpandedBrands(p => { const s = new Set(p); s.has(b) ? s.delete(b) : s.add(b); return s; }), []);
+  const toggleCat = useCallback((k: string) =>
+    setExpandedCats(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
 
-  // Effetto P+C: somma degli effetti spiegati dal modello a livello gruppo
-  const effPC = (!isPureOneSide && group.effPrezzo !== null && group.effCosto !== null)
-    ? group.effPrezzo + group.effCosto : null;
+  const nodes = useMemo<HierBrandNode[]>(() => {
+    const brandMap = new Map<string, ComparedLine[]>();
+    for (const l of allLines) {
+      const b = l.brand || 'N/D';
+      if (!brandMap.has(b)) brandMap.set(b, []);
+      brandMap.get(b)!.push(l);
+    }
+    return [...brandMap.entries()].map(([brand, bLines]) => {
+      const catMap = new Map<string, ComparedLine[]>();
+      for (const l of bLines) {
+        const c = l.categoria || 'N/D';
+        if (!catMap.has(c)) catMap.set(c, []);
+        catMap.get(c)!.push(l);
+      }
+      const categorias: HierCatNode[] = [...catMap.entries()].map(([cat, cLines]) => {
+        const scMap = new Map<string, ComparedLine[]>();
+        for (const l of cLines) {
+          const s = l.sottocategoria || 'N/D';
+          if (!scMap.has(s)) scMap.set(s, []);
+          scMap.get(s)!.push(l);
+        }
+        const subcats: HierLeafNode[] = [...scMap.entries()].map(([subcat, sLines]) => ({
+          subcat, bridge: computeGroupBridge(sLines),
+        }));
+        return { cat, bridge: computeGroupBridge(cLines), subcats };
+      });
+      return { brand, bridge: computeGroupBridge(bLines), categorias };
+    });
+  }, [allLines]);
+
+  const md = effects.mixDecomposition;
+  const totMixRef = md.sottocategoria + md.formato + md.residuo;
 
   return (
-    <>
-      <tr
-        className={`hover:bg-slate-50 transition-colors border-b border-slate-100 ${hasChildren ? 'cursor-pointer' : ''}`}
-        onClick={hasChildren ? onToggle : undefined}
-      >
-        {/* Brand */}
-        <td className="px-4 py-3 text-xs font-medium text-slate-700">
-          <div className="flex items-center gap-1.5">
-            {hasChildren && (
-              expanded
-                ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-            )}
-            {group.brand || '—'}
-          </div>
-        </td>
-        {/* Categoria */}
-        <td className="px-4 py-3 text-xs text-slate-600">{group.categoria || '—'}</td>
-        {/* Sottocategoria */}
-        <td className="px-4 py-3 text-xs text-slate-500">{group.sottocategoria || '—'}</td>
-        {/* M% P1 */}
-        <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
-          {nd(group.marginPct1, v => fmtPct(v * 100))}
-        </td>
-        {/* Delta M% Gruppo = M%P2 − M%P1 (osservato) */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-semibold ${group.effTotale !== null ? clrPp(group.effTotale) : 'text-slate-400'}`}>
-          {group.effTotale !== null ? fmtPp(group.effTotale) : 'N/D'}
-        </td>
-        {/* Eff. VolMix */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effVolMix !== null ? clrPp(group.effVolMix) : 'text-slate-300'}`}>
-          {isPureOneSide ? fmtPp(0) : group.effVolMix !== null ? fmtPp(group.effVolMix) : 'N/D'}
-        </td>
-        {/* Eff. Prezzo — 0.00 pp per gruppi presenti in un solo periodo */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effPrezzo !== null ? clrPp(group.effPrezzo) : 'text-slate-300'}`}>
-          {isPureOneSide ? fmtPp(0) : group.effPrezzo !== null ? fmtPp(group.effPrezzo) : 'N/D'}
-        </td>
-        {/* Eff. Costo */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-medium ${!isPureOneSide && group.effCosto !== null ? clrPp(group.effCosto) : 'text-slate-300'}`}>
-          {isPureOneSide ? fmtPp(0) : group.effCosto !== null ? fmtPp(group.effCosto) : 'N/D'}
-        </td>
-        {/* Eff. P+C */}
-        <td className={`px-4 py-3 text-xs tabular-nums text-right font-bold ${effPC !== null ? clrPp(effPC) : 'text-slate-300'}`}>
-          {effPC !== null ? fmtPp(effPC) : isPureOneSide ? fmtPp(0) : '—'}
-        </td>
-        {/* M% P2 */}
-        <td className="px-4 py-3 text-xs tabular-nums text-slate-700 text-right">
-          {nd(group.marginPct2, v => fmtPct(v * 100))}
-        </td>
-        {/* Stato */}
-        <td className="px-4 py-3 text-center">
-          <PresenceBadge presence={group.presence} />
-        </td>
-      </tr>
-      {expanded && group.lines.map(l => (
-        <tr key={l.key} className="bg-slate-50/60 border-b border-slate-50 text-[10px]">
-          {/* Codice (colSpan 2) */}
-          <td className="px-4 py-2 pl-8 text-slate-500 font-mono" colSpan={2}>{l.codice}</td>
-          {/* Descrizione + badge */}
-          <td className="px-4 py-2 text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate max-w-28" title={l.descrizione}>{l.descrizione}</span>
-              <PresenceBadge presence={l.presence} />
-            </div>
-          </td>
-          {/* M% P1 — N/D se onlyP2 */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-500">
-            {l.isOnlyP2 ? <span className="text-slate-400">N/D</span> : nd(l.marginPct1, v => fmtPct(v * 100))}
-          </td>
-          {/* Delta M% individuale */}
-          <td className={`px-4 py-2 tabular-nums text-right font-semibold ${l.deltaMarginPct !== null ? clrPp(l.deltaMarginPct) : 'text-slate-400'}`}>
-            {l.deltaMarginPct !== null ? fmtPp(l.deltaMarginPct) : 'N/D'}
-          </td>
-          {/* Eff. VolMix / Prezzo / Costo / P+C — non significativi a livello singola referenza */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-300" colSpan={4}>—</td>
-          {/* M% P2 — N/D se onlyP1 */}
-          <td className="px-4 py-2 tabular-nums text-right text-slate-500">
-            {l.isOnlyP1 ? <span className="text-slate-400">N/D</span> : nd(l.marginPct2, v => fmtPct(v * 100))}
-          </td>
-          {/* Stato */}
-          <td className="px-4 py-2 text-center">
-            <PresenceBadge presence={l.presence} />
-          </td>
-        </tr>
-      ))}
-    </>
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs border-collapse min-w-[860px]">
+        <thead>
+          <tr className="bg-slate-50 border-b-2 border-slate-200">
+            {['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Cat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'].map(h => (
+              <th key={h} className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap text-right first:text-left">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {nodes.map(({ brand, bridge: bb, categorias }) => {
+            const bExp = expandedBrands.has(brand);
+            return (
+              <Fragment key={brand}>
+                {/* Brand row */}
+                <tr className="bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors border-b border-slate-600"
+                    onClick={() => toggleBrand(brand)}>
+                  <td className="px-3 py-2.5 font-bold text-white">
+                    <div className="flex items-center gap-1.5">
+                      {bExp ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                            : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                      {brand}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 tabular-nums text-right text-white/80">{fmtPctV(bb.cosP1)}</td>
+                  <BridgeCell v={bb.effVolume} />
+                  <BridgeCell v={0} alwaysZero />
+                  <BridgeCell v={bb.effMixCategoria} />
+                  <BridgeCell v={bb.effMixReferenza} />
+                  <BridgeCell v={bb.effPrezzo} />
+                  <BridgeCell v={bb.effCosto} />
+                  <td className="px-3 py-2.5 tabular-nums text-right text-white/80">{fmtPctV(bb.cosP2)}</td>
+                </tr>
+
+                {/* Categoria rows */}
+                {bExp && categorias.map(({ cat, bridge: cb, subcats }) => {
+                  const catKey = `${brand}|${cat}`;
+                  const cExp = expandedCats.has(catKey);
+                  return (
+                    <Fragment key={catKey}>
+                      <tr className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors border-b border-slate-200"
+                          onClick={() => toggleCat(catKey)}>
+                        <td className="px-3 py-2 text-slate-700 font-semibold">
+                          <div className="flex items-center gap-1.5 pl-5">
+                            {cExp ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                  : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />}
+                            {cat}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmtPctV(cb.cosP1)}</td>
+                        <BridgeCell v={cb.effVolume} />
+                        <BridgeCell v={0} alwaysZero />
+                        <BridgeCell v={0} alwaysZero />
+                        <BridgeCell v={cb.effMixReferenza} />
+                        <BridgeCell v={cb.effPrezzo} />
+                        <BridgeCell v={cb.effCosto} />
+                        <td className="px-3 py-2 tabular-nums text-right text-slate-600">{fmtPctV(cb.cosP2)}</td>
+                      </tr>
+
+                      {/* Sottocategoria (leaf) rows */}
+                      {cExp && subcats.map(({ subcat, bridge: lb }) => (
+                        <tr key={`${catKey}|${subcat}`}
+                            className="bg-white border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-1.5 text-slate-600 pl-14">{subcat}</td>
+                          <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(lb.cosP1)}</td>
+                          <BridgeCell v={lb.effVolume} />
+                          <BridgeCell v={0} alwaysZero />
+                          <BridgeCell v={0} alwaysZero />
+                          <BridgeCell v={lb.effMixReferenza} />
+                          <BridgeCell v={lb.effPrezzo} />
+                          <BridgeCell v={lb.effCosto} />
+                          <td className="px-3 py-1.5 tabular-nums text-right text-slate-500">{fmtPctV(lb.cosP2)}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+
+          {/* Totale complessivo */}
+          <tr className="bg-blue-50 border-t-2 border-blue-200">
+            <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
+            <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP1)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria)}`}>{fmtEff(md.categoria)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(totMixRef)}`}>{fmtEff(totMixRef)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
+            <td className="px-3 py-3 tabular-nums text-right font-bold text-slate-700">{fmtPctV(effects.marginPctP2)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -525,8 +584,6 @@ export default function VarianceAnalysis() {
   const [activeFilters, setActiveFilters] = useState<Partial<Record<FilterDim, string[]>>>({});
 
   // ── UI state ────────────────────────────────────────────────────────────────
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-
   // ── AI comment + consultant note ────────────────────────────────────────────
   const [aiComment, setAiComment]       = useState<string | null>(null);
   const [aiLoading, setAiLoading]       = useState(false);
@@ -637,7 +694,6 @@ export default function VarianceAnalysis() {
       setP1Keys([]);
       setP2Keys([]);
       setActiveFilters({});
-      setExpandedGroups(new Set());
     } catch { alert('Errore lettura file. Assicurati che sia un file Excel valido.'); }
     finally { setLoading(false); }
   }, []);
@@ -656,8 +712,6 @@ export default function VarianceAnalysis() {
   };
 
   const clearFilters = () => setActiveFilters({});
-
-  const toggleGroup  = (key: string) => setExpandedGroups(prev  => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
 
   // ─────────────────────────────────────────────────────────────────────────────
   // STATE 1 — UPLOAD
@@ -1098,32 +1152,10 @@ export default function VarianceAnalysis() {
               <div className="px-6 py-4 border-b border-slate-100">
                 <h3 className="text-sm font-semibold text-slate-800">Variazione Margine % per Gruppo</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Delta M% Gruppo = M% P2 − M% P1 (osservato). Delta = VolMix + Prezzo + Costo. Clicca ▶ per il dettaglio referenze.
+                  Gerarchia Brand → Categoria → Sottocategoria con bridge sequenziale. Clicca ▶ per espandere.
                 </p>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-slate-50">
-                      {['Brand', 'Categoria', 'Sottocategoria', 'M% P1', 'Delta M% Gruppo', 'Eff. VolMix', 'Eff. Prezzo', 'Eff. Costo', 'Eff. P+C', 'M% P2', 'Stato'].map(h => (
-                        <th key={h} className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wide text-right first:text-left whitespace-nowrap last:text-center">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {effects.tableGroups.map(g => (
-                      <EffectsTableRow
-                        key={g.key}
-                        group={g}
-                        expanded={expandedGroups.has(g.key)}
-                        onToggle={() => toggleGroup(g.key)}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <HierarchicalBridgeTable effects={effects} allLines={effects.lines} />
             </div>
 
             {/* ── Top Drivers per Prodotto ───────────────────────────────────── */}

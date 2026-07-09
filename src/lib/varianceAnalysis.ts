@@ -1178,6 +1178,83 @@ function computeMixDecomposition(
   };
 }
 
+// ─── computeGroupBridge ──────────────────────────────────────────────────────
+// Computes the sequential bridge for an arbitrary subset of ComparedLine[].
+// Mix is split into two levels:
+//   effMixCategoria – within-group categoria shift (Scenario Cat − Scenario V)
+//   effMixReferenza – remaining mix after categoria shift (effMix − effMixCategoria)
+// Consistent with the global bridge: onlyP2 excluded from Scenario M.
+
+export interface GroupBridgeResult {
+  cosP1:           number | null;
+  cosP2:           number | null;
+  effVolume:       number;
+  effMixCategoria: number;
+  effMixReferenza: number;
+  effPrezzo:       number;
+  effCosto:        number;
+  presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
+}
+
+export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
+  if (!lines.length) {
+    return { cosP1: null, cosP2: null, effVolume: 0,
+             effMixCategoria: 0, effMixReferenza: 0, effPrezzo: 0, effCosto: 0, presence: 'both' };
+  }
+  const kpis = calculateBaseKpis(lines);
+
+  const presSet = new Set(lines.map(l => l.presence));
+  const presence = presSet.size === 1
+    ? ([...presSet][0] as 'both' | 'onlyP1' | 'onlyP2')
+    : 'mixed' as const;
+
+  // Pure P1-only or P2-only groups: no meaningful bridge, all effects = 0
+  if (kpis.totalRev1 === 0 || kpis.totalRev2 === 0) {
+    return {
+      cosP1:           kpis.totalRev1 > 0 ? kpis.marginPctP1 : null,
+      cosP2:           kpis.totalRev2 > 0 ? kpis.marginPctP2 : null,
+      effVolume: 0, effMixCategoria: 0, effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
+      presence,
+    };
+  }
+
+  const eff  = calculateVarianceEffects(lines, kpis);
+  const { marginPctV } = eff;
+
+  // Categoria-level scenario: redistribute each categoria's P2 total in P1 proportions.
+  // onlyP2 products have q1=0 → qS=0 (same behaviour as the full mix decomposition).
+  const catQ1 = new Map<string, number>();
+  const catQ2 = new Map<string, number>();
+  for (const l of lines) {
+    const k = l.categoria || 'N/D';
+    catQ1.set(k, (catQ1.get(k) ?? 0) + l.q1);
+    catQ2.set(k, (catQ2.get(k) ?? 0) + l.q2);
+  }
+  let revCat = 0, costCat = 0;
+  for (const l of lines) {
+    const k   = l.categoria || 'N/D';
+    const Q1g = catQ1.get(k) ?? 0;
+    const Q2g = catQ2.get(k) ?? 0;
+    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+    revCat  += qS * l.price1Effective;
+    costCat += qS * l.unitCost1Effective;
+  }
+  const marginPctCat    = revCat > 0 ? (revCat - costCat) / revCat : marginPctV;
+  const effMixCategoria = marginPctCat - marginPctV;
+  const effMixReferenza = eff.effMix - effMixCategoria;
+
+  return {
+    cosP1:           kpis.marginPctP1,
+    cosP2:           kpis.marginPctP2,
+    effVolume:       eff.effVolume,
+    effMixCategoria,
+    effMixReferenza,
+    effPrezzo:       eff.effPrezzo,
+    effCosto:        eff.effCosto,
+    presence,
+  };
+}
+
 // ─── validateQuantityConservation ────────────────────────────────────────────
 // Invariant: every hybrid mix scenario redistributes Q2 among referenze without
 // changing the total. Violated only by floating-point accumulation (|diff| < 1e-6
