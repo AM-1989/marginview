@@ -433,6 +433,62 @@ function EffectsTableRow({
   );
 }
 
+// ─── Filter dropdown ──────────────────────────────────────────────────────────
+
+function FilterDropdown({
+  label, values, selected, onToggle,
+}: {
+  label: string;
+  values: string[];
+  selected: string[];
+  onToggle: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  const label_text = selected.length > 0 ? `${label} (${selected.length})` : label;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-medium transition-all ${
+          selected.length > 0
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+        }`}
+      >
+        <span>{label_text}</span>
+        <ChevronDown size={12} className={`ml-1 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-full min-w-max bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+          {values.map(v => (
+            <label key={v} className="flex items-center gap-2 px-3 py-2 text-xs hover:bg-slate-50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.includes(v)}
+                onChange={() => onToggle(v)}
+                className="accent-blue-600 flex-shrink-0"
+              />
+              <span className="text-slate-700 whitespace-nowrap">{v}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function VarianceAnalysis() {
@@ -753,36 +809,16 @@ export default function VarianceAnalysis() {
             {activeDims.length > 0 && (
               <div>
                 <p className="text-xs font-bold text-slate-600 uppercase tracking-widest mb-3">Filtri Opzionali</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {activeDims.map(dim => {
-                    const vals    = filterOpts![dim];
-                    const selVals = activeFilters[dim] ?? [];
-                    return (
-                      <div key={dim} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                          {FILTER_DIM_LABELS[dim]}
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {vals.map(v => {
-                            const sel = selVals.includes(v);
-                            return (
-                              <button
-                                key={v}
-                                onClick={() => toggleFilter(dim, v)}
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-all border ${
-                                  sel
-                                    ? 'bg-blue-600 text-white border-blue-600'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                                }`}
-                              >
-                                {v}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {activeDims.map(dim => (
+                    <FilterDropdown
+                      key={dim}
+                      label={FILTER_DIM_LABELS[dim]}
+                      values={filterOpts![dim]}
+                      selected={activeFilters[dim] ?? []}
+                      onToggle={(v) => toggleFilter(dim, v)}
+                    />
+                  ))}
                 </div>
               </div>
             )}
