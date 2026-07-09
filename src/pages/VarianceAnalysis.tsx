@@ -48,25 +48,50 @@ const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && i
 
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   const md = effects.mixDecomposition;
+  const [open, setOpen] = useState<string | null>(null);
 
-  const rows = [
-    { label: 'Mix Brand',          value: md.brand          },
-    { label: 'Mix Categoria',      value: md.categoria      },
-    { label: 'Mix Sottocategoria', value: md.sottocategoria },
-    { label: 'Mix Formato',        value: md.formato        },
-    { label: 'Residuo (referenze)',value: md.residuo        },
+  const rows: { label: string; value: number; breakdown: { name: string; contribution: number }[] }[] = [
+    { label: 'Mix Brand',          value: md.brand,          breakdown: md.brandBreakdown          },
+    { label: 'Mix Categoria',      value: md.categoria,      breakdown: md.categoriaBreakdown      },
+    { label: 'Mix Sottocategoria', value: md.sottocategoria, breakdown: md.sottocategoriaBreakdown },
+    { label: 'Mix Formato',        value: md.formato,        breakdown: md.formatoBreakdown        },
+    { label: 'Residuo (referenze)',value: md.residuo,        breakdown: md.productBreakdown        },
   ];
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <h4 className="text-sm font-semibold text-slate-700 mb-3">Analisi Effetto Mix per Dimensione</h4>
       <div className="border border-slate-200 rounded-xl overflow-hidden">
-        {rows.map(({ label, value }) => (
-          <div key={label} className="flex items-center justify-between px-3 py-2.5 border-b border-slate-100 text-xs">
-            <span className="text-slate-600">{label}</span>
-            <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
-          </div>
-        ))}
+        {rows.map(({ label, value, breakdown }) => {
+          const isOpen = open === label;
+          const hasDetail = breakdown.length > 0;
+          return (
+            <div key={label} className="border-b border-slate-100 last:border-b-0">
+              <button
+                className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-slate-50 transition-colors"
+                onClick={() => hasDetail && setOpen(isOpen ? null : label)}
+              >
+                <span className="flex items-center gap-1.5 text-slate-600">
+                  {hasDetail
+                    ? (isOpen ? <ChevronDown size={12} className="text-slate-400" /> : <ChevronRight size={12} className="text-slate-400" />)
+                    : <span className="w-3" />}
+                  {label}
+                </span>
+                <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
+              </button>
+              {isOpen && (
+                <div className="bg-slate-50 border-t border-slate-100 px-3 py-2 space-y-1">
+                  {breakdown.map(({ name, contribution }) => (
+                    <div key={name} className="flex items-center justify-between text-xs py-0.5">
+                      <span className="text-slate-500 truncate max-w-[70%]" title={name}>{name}</span>
+                      <span className={`tabular-nums font-medium ${clrPp(contribution)}`}>{fmtPp(contribution)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
           <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
           <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
