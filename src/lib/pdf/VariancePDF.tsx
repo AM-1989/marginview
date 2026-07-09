@@ -51,15 +51,17 @@ const S = StyleSheet.create({
   mixCell:    { fontSize: 7, color: C.slate7 },
 
   // Hierarchical table
-  hierTable: { borderWidth: 1, borderColor: C.slate2, borderRadius: 6, overflow: 'hidden' },
-  hierHead:  { flexDirection: 'row', backgroundColor: '#1e293b', paddingVertical: 5, paddingHorizontal: 6 },
-  hierHCell: { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#94a3b8', textTransform: 'uppercase' },
-  hierBrand: { flexDirection: 'row', backgroundColor: '#334155', paddingVertical: 5, paddingHorizontal: 6 },
-  hierBCell: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: C.white },
-  hierCat:   { flexDirection: 'row', backgroundColor: C.bg, paddingVertical: 4, paddingHorizontal: 6, borderTopWidth: 1, borderTopColor: C.slate2 },
-  hierCCell: { fontSize: 6.5, color: C.slate7 },
-  hierTot:   { flexDirection: 'row', backgroundColor: '#dbeafe', paddingVertical: 6, paddingHorizontal: 6, borderTopWidth: 1.5, borderTopColor: '#93c5fd' },
-  hierTCell: { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e3a5f' },
+  hierTable:   { borderWidth: 1, borderColor: C.slate2, borderRadius: 6, overflow: 'hidden' },
+  hierHead:    { flexDirection: 'row', backgroundColor: '#1e293b', paddingVertical: 5, paddingHorizontal: 6 },
+  hierHCell:   { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#94a3b8', textTransform: 'uppercase' },
+  hierCanale:  { flexDirection: 'row', backgroundColor: '#020617', paddingVertical: 6, paddingHorizontal: 6 },
+  hierCnCell:  { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#c4b5fd', textTransform: 'uppercase', letterSpacing: 0.8 },
+  hierBrand:   { flexDirection: 'row', backgroundColor: '#334155', paddingVertical: 5, paddingHorizontal: 6 },
+  hierBCell:   { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: C.white },
+  hierCat:     { flexDirection: 'row', backgroundColor: C.bg, paddingVertical: 4, paddingHorizontal: 6, borderTopWidth: 1, borderTopColor: C.slate2 },
+  hierCCell:   { fontSize: 6.5, color: C.slate7 },
+  hierTot:     { flexDirection: 'row', backgroundColor: '#dbeafe', paddingVertical: 6, paddingHorizontal: 6, borderTopWidth: 1.5, borderTopColor: '#93c5fd' },
+  hierTCell:   { fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e3a5f' },
 
   // Driver tables
   tblHead:  { flexDirection: 'row', backgroundColor: C.slate1, paddingVertical: 4, paddingHorizontal: 6, borderRadius: 3, marginBottom: 1 },
@@ -169,26 +171,38 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
     Math.abs(delta), 0.001,
   );
 
-  // Build Brand → Categoria hierarchy
-  const brandMap = new Map<string, ComparedLine[]>();
+  // Build Canale → Brand → Categoria hierarchy
+  const canaleMap = new Map<string, ComparedLine[]>();
   for (const l of effects.lines) {
-    const b = l.brand || 'N/D';
-    if (!brandMap.has(b)) brandMap.set(b, []);
-    brandMap.get(b)!.push(l);
+    const cn = l.canale || 'N/D';
+    if (!canaleMap.has(cn)) canaleMap.set(cn, []);
+    canaleMap.get(cn)!.push(l);
   }
-  const hierBrands = [...brandMap.entries()].map(([brand, bLines]) => {
-    const catMap = new Map<string, ComparedLine[]>();
-    for (const l of bLines) {
-      const c = l.categoria || 'N/D';
-      if (!catMap.has(c)) catMap.set(c, []);
-      catMap.get(c)!.push(l);
+  const hierCanali = [...canaleMap.entries()].map(([canale, cnLines]) => {
+    const brandMap = new Map<string, ComparedLine[]>();
+    for (const l of cnLines) {
+      const b = l.brand || 'N/D';
+      if (!brandMap.has(b)) brandMap.set(b, []);
+      brandMap.get(b)!.push(l);
     }
     return {
-      brand,
-      bridge: computeGroupBridge(bLines),
-      cats: [...catMap.entries()].map(([cat, cLines]) => ({
-        cat, bridge: computeGroupBridge(cLines),
-      })),
+      canale,
+      bridge: computeGroupBridge(cnLines),
+      brands: [...brandMap.entries()].map(([brand, bLines]) => {
+        const catMap = new Map<string, ComparedLine[]>();
+        for (const l of bLines) {
+          const c = l.categoria || 'N/D';
+          if (!catMap.has(c)) catMap.set(c, []);
+          catMap.get(c)!.push(l);
+        }
+        return {
+          brand,
+          bridge: computeGroupBridge(bLines),
+          cats: [...catMap.entries()].map(([cat, cLines]) => ({
+            cat, bridge: computeGroupBridge(cLines),
+          })),
+        };
+      }),
     };
   });
 
@@ -320,7 +334,7 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
         <View style={base.body}>
 
           {/* Hierarchical bridge table */}
-          <Text style={base.sectionLabel}>Tabella Gerarchica Brand → Categoria</Text>
+          <Text style={base.sectionLabel}>Tabella Gerarchica Canale → Brand → Categoria</Text>
           <View style={S.hierTable}>
             <View style={S.hierHead}>
               {([
@@ -336,26 +350,39 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
               ))}
             </View>
 
-            {hierBrands.map(({ brand, bridge: bb, cats }) => (
-              <View key={brand}>
-                <View style={S.hierBrand}>
-                  <Text style={[S.hierBCell, { width: H.name }]}>{brand}</Text>
-                  <Text style={[S.hierBCell, { width: H.p1, textAlign: 'right', color: '#fde68a' }]}>{pct(bb.cosP1)}</Text>
-                  <Text style={[S.hierBCell, { width: H.vol, textAlign: 'right', color: clr(bb.effVolume) }]}>{pp(bb.effVolume)}</Text>
-                  <Text style={[S.hierBCell, { width: H.mix, textAlign: 'right', color: clr(totalMix(bb)) }]}>{pp(totalMix(bb))}</Text>
-                  <Text style={[S.hierBCell, { width: H.prc, textAlign: 'right', color: clr(bb.effPrezzo) }]}>{pp(bb.effPrezzo)}</Text>
-                  <Text style={[S.hierBCell, { width: H.cst, textAlign: 'right', color: clr(bb.effCosto) }]}>{pp(bb.effCosto)}</Text>
-                  <Text style={[S.hierBCell, { width: H.p2, textAlign: 'right', color: '#fde68a' }]}>{pct(bb.cosP2)}</Text>
+            {hierCanali.map(({ canale, bridge: cnb, brands }) => (
+              <View key={canale}>
+                <View style={S.hierCanale}>
+                  <Text style={[S.hierCnCell, { width: H.name }]}>{canale}</Text>
+                  <Text style={[S.hierCnCell, { width: H.p1, textAlign: 'right', color: '#fde68a' }]}>{pct(cnb.cosP1)}</Text>
+                  <Text style={[S.hierCnCell, { width: H.vol, textAlign: 'right', color: clr(cnb.effVolume) }]}>{pp(cnb.effVolume)}</Text>
+                  <Text style={[S.hierCnCell, { width: H.mix, textAlign: 'right', color: clr(totalMix(cnb)) }]}>{pp(totalMix(cnb))}</Text>
+                  <Text style={[S.hierCnCell, { width: H.prc, textAlign: 'right', color: clr(cnb.effPrezzo) }]}>{pp(cnb.effPrezzo)}</Text>
+                  <Text style={[S.hierCnCell, { width: H.cst, textAlign: 'right', color: clr(cnb.effCosto) }]}>{pp(cnb.effCosto)}</Text>
+                  <Text style={[S.hierCnCell, { width: H.p2, textAlign: 'right', color: '#fde68a' }]}>{pct(cnb.cosP2)}</Text>
                 </View>
-                {cats.map(({ cat, bridge: cb }) => (
-                  <View key={`${brand}|${cat}`} style={S.hierCat}>
-                    <Text style={[S.hierCCell, { width: H.name, paddingLeft: 10 }]}>{cat}</Text>
-                    <Text style={[S.hierCCell, { width: H.p1, textAlign: 'right', color: C.slate5 }]}>{pct(cb.cosP1)}</Text>
-                    <Text style={[S.hierCCell, { width: H.vol, textAlign: 'right', color: clr(cb.effVolume) }]}>{pp(cb.effVolume)}</Text>
-                    <Text style={[S.hierCCell, { width: H.mix, textAlign: 'right', color: clr(totalMix(cb)) }]}>{pp(totalMix(cb))}</Text>
-                    <Text style={[S.hierCCell, { width: H.prc, textAlign: 'right', color: clr(cb.effPrezzo) }]}>{pp(cb.effPrezzo)}</Text>
-                    <Text style={[S.hierCCell, { width: H.cst, textAlign: 'right', color: clr(cb.effCosto) }]}>{pp(cb.effCosto)}</Text>
-                    <Text style={[S.hierCCell, { width: H.p2, textAlign: 'right', color: C.slate5 }]}>{pct(cb.cosP2)}</Text>
+                {brands.map(({ brand, bridge: bb, cats }) => (
+                  <View key={`${canale}|${brand}`}>
+                    <View style={S.hierBrand}>
+                      <Text style={[S.hierBCell, { width: H.name, paddingLeft: 8 }]}>{brand}</Text>
+                      <Text style={[S.hierBCell, { width: H.p1, textAlign: 'right', color: '#fde68a' }]}>{pct(bb.cosP1)}</Text>
+                      <Text style={[S.hierBCell, { width: H.vol, textAlign: 'right', color: clr(bb.effVolume) }]}>{pp(bb.effVolume)}</Text>
+                      <Text style={[S.hierBCell, { width: H.mix, textAlign: 'right', color: clr(totalMix(bb)) }]}>{pp(totalMix(bb))}</Text>
+                      <Text style={[S.hierBCell, { width: H.prc, textAlign: 'right', color: clr(bb.effPrezzo) }]}>{pp(bb.effPrezzo)}</Text>
+                      <Text style={[S.hierBCell, { width: H.cst, textAlign: 'right', color: clr(bb.effCosto) }]}>{pp(bb.effCosto)}</Text>
+                      <Text style={[S.hierBCell, { width: H.p2, textAlign: 'right', color: '#fde68a' }]}>{pct(bb.cosP2)}</Text>
+                    </View>
+                    {cats.map(({ cat, bridge: cb }) => (
+                      <View key={`${canale}|${brand}|${cat}`} style={S.hierCat}>
+                        <Text style={[S.hierCCell, { width: H.name, paddingLeft: 16 }]}>{cat}</Text>
+                        <Text style={[S.hierCCell, { width: H.p1, textAlign: 'right', color: C.slate5 }]}>{pct(cb.cosP1)}</Text>
+                        <Text style={[S.hierCCell, { width: H.vol, textAlign: 'right', color: clr(cb.effVolume) }]}>{pp(cb.effVolume)}</Text>
+                        <Text style={[S.hierCCell, { width: H.mix, textAlign: 'right', color: clr(totalMix(cb)) }]}>{pp(totalMix(cb))}</Text>
+                        <Text style={[S.hierCCell, { width: H.prc, textAlign: 'right', color: clr(cb.effPrezzo) }]}>{pp(cb.effPrezzo)}</Text>
+                        <Text style={[S.hierCCell, { width: H.cst, textAlign: 'right', color: clr(cb.effCosto) }]}>{pp(cb.effCosto)}</Text>
+                        <Text style={[S.hierCCell, { width: H.p2, textAlign: 'right', color: C.slate5 }]}>{pct(cb.cosP2)}</Text>
+                      </View>
+                    ))}
                   </View>
                 ))}
               </View>

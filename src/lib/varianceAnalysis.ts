@@ -1,29 +1,27 @@
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type FilterDim = 'brand' | 'categoria' | 'sottocategoria' | 'formato' | 'paese' | 'canale';
+export type FilterDim = 'canale' | 'brand' | 'categoria' | 'sottocategoria' | 'formato';
 
 export const FILTER_DIMS: FilterDim[] = [
-  'brand', 'categoria', 'sottocategoria', 'formato', 'paese', 'canale',
+  'canale', 'brand', 'categoria', 'sottocategoria', 'formato',
 ];
 
 export const FILTER_DIM_LABELS: Record<FilterDim, string> = {
+  canale: 'Canale',
   brand: 'Brand',
   categoria: 'Categoria',
   sottocategoria: 'Sottocategoria',
   formato: 'Formato',
-  paese: 'Paese',
-  canale: 'Canale',
 };
 
 export interface VarRow {
   codiceMateriale: string;
   descrizione: string;
+  canale: string;
   brand: string;
   categoria: string;
   sottocategoria: string;
   formato: string;
-  paese: string;
-  canale: string;
   anno: number;
   mese: number;
   quantita: number;
@@ -40,12 +38,11 @@ export interface PeriodKey {
 }
 
 export interface FilterOptions {
+  canale: string[];
   brand: string[];
   categoria: string[];
   sottocategoria: string[];
   formato: string[];
-  paese: string[];
-  canale: string[];
 }
 
 // ─── Technical flags per reference line ───────────────────────────────────────
@@ -69,12 +66,11 @@ export interface ComparedLine {
   key: string;
   codice: string;
   descrizione: string;
+  canale: string;
   brand: string;
   categoria: string;
   sottocategoria: string;
   formato: string;
-  paese: string;
-  canale: string;
 
   // ── Presence ──────────────────────────────────────────────────────────────
   presence: 'both' | 'onlyP1' | 'onlyP2';
@@ -313,7 +309,6 @@ const COL_MAP: Record<string, string[]> = {
   categoria:      ['categoria', 'category', 'famiglia', 'famiglia prodotto'],
   sottocategoria: ['sottocategoria', 'subcategory', 'sub categoria', 'sub-categoria'],
   formato:        ['formato', 'format', 'pack', 'confezione'],
-  paese:          ['paese', 'paese di vendita', 'country', 'nazione'],
   canale:         ['canale', 'canale di vendita', 'channel', 'canale vendita'],
   anno:           ['anno', 'year', 'esercizio', 'anno competenza', 'anno di competenza'],
   mese:           ['mese', 'month', 'mese competenza', 'mese di competenza'],
@@ -388,7 +383,6 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
       categoria:       String(get(r, 'categoria')       ?? '').trim(),
       sottocategoria:  String(get(r, 'sottocategoria')  ?? '').trim(),
       formato:         String(get(r, 'formato')         ?? '').trim(),
-      paese:           String(get(r, 'paese')           ?? '').trim(),
       canale:          String(get(r, 'canale')          ?? '').trim(),
       anno:            parseNum(get(r, 'anno')) || new Date().getFullYear(),
       mese:            parseMese(get(r, 'mese')),
@@ -432,19 +426,18 @@ export function extractPeriods(rows: VarRow[]): PeriodKey[] {
 
 export function extractFilterOptions(rows: VarRow[]): FilterOptions {
   const sets: Record<FilterDim, Set<string>> = {
-    brand: new Set(), categoria: new Set(), sottocategoria: new Set(),
-    formato: new Set(), paese: new Set(), canale: new Set(),
+    canale: new Set(), brand: new Set(), categoria: new Set(),
+    sottocategoria: new Set(), formato: new Set(),
   };
   for (const r of rows) {
+    if (r.canale)         sets.canale.add(r.canale);
     if (r.brand)          sets.brand.add(r.brand);
     if (r.categoria)      sets.categoria.add(r.categoria);
     if (r.sottocategoria) sets.sottocategoria.add(r.sottocategoria);
     if (r.formato)        sets.formato.add(r.formato);
-    if (r.paese)          sets.paese.add(r.paese);
-    if (r.canale)         sets.canale.add(r.canale);
   }
   const opts: FilterOptions = {
-    brand: [], categoria: [], sottocategoria: [], formato: [], paese: [], canale: [],
+    canale: [], brand: [], categoria: [], sottocategoria: [], formato: [],
   };
   for (const k of FILTER_DIMS) opts[k] = [...sets[k]].sort();
   return opts;
@@ -547,12 +540,11 @@ function buildReferenceKeyFn(allRows: VarRow[]): (row: VarRow) => string {
 interface AggLine {
   codice: string;
   descrizione: string;
+  canale: string;
   brand: string;
   categoria: string;
   sottocategoria: string;
   formato: string;
-  paese: string;
-  canale: string;
   q: number;
   rev: number;
   cost: number;
@@ -570,12 +562,11 @@ export function aggregatePeriod(
       map.set(k, {
         codice: r.codiceMateriale,
         descrizione: r.descrizione,
+        canale: r.canale,
         brand: r.brand,
         categoria: r.categoria,
         sottocategoria: r.sottocategoria,
         formato: r.formato,
-        paese: r.paese,
-        canale: r.canale,
         q: 0, rev: 0, cost: 0,
       });
     }
@@ -588,7 +579,6 @@ export function aggregatePeriod(
     if (!a.sottocategoria && r.sottocategoria) a.sottocategoria = r.sottocategoria;
     if (!a.formato        && r.formato)        a.formato        = r.formato;
     if (!a.descrizione    && r.descrizione)    a.descrizione    = r.descrizione;
-    if (!a.paese          && r.paese)          a.paese          = r.paese;
     if (!a.canale         && r.canale)         a.canale         = r.canale;
   }
 
@@ -658,12 +648,11 @@ export function fullOuterJoinPeriods(
       key,
       codice:        meta.codice,
       descrizione:   meta.descrizione,
+      canale:        meta.canale,
       brand:         meta.brand,
       categoria:     meta.categoria,
       sottocategoria: meta.sottocategoria,
       formato:       meta.formato,
-      paese:         meta.paese,
-      canale:        meta.canale,
 
       presence,
       isOnlyP1: presence === 'onlyP1',

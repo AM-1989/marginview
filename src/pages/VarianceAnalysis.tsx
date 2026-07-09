@@ -315,11 +315,10 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 
 // ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
-// Pivot table matching Alessio's Excel format:
-//   Brand → Categoria → Sottocategoria → Formato (4 levels)
-//   Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Sottocat. | Mix Ref. | Price | Costo | Cos%P2
-// Brand, Categoria and Sottocategoria rows are collapsible (default collapsed).
+// Pivot table: Canale → Brand → Categoria → Sottocategoria → Formato (5 levels)
+// Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Sottocat. | Mix Ref. | Price | Costo | Cos%P2
 
+interface HierCanaleNode { canale: string; bridge: GroupBridgeResult; brands: HierBrandNode[]   }
 interface HierBrandNode  { brand: string;  bridge: GroupBridgeResult; categorias: HierCatNode[]  }
 interface HierCatNode    { cat: string;    bridge: GroupBridgeResult; subcats: HierSubcatNode[]  }
 interface HierSubcatNode { subcat: string; bridge: GroupBridgeResult; formati: HierLeafNode[]    }
@@ -359,10 +358,13 @@ function HierarchicalBridgeTable({
   effects: EffectsResult;
   allLines: ComparedLine[];
 }) {
+  const [expandedCanali,  setExpandedCanali]  = useState<Set<string>>(new Set());
   const [expandedBrands,  setExpandedBrands]  = useState<Set<string>>(new Set());
   const [expandedCats,    setExpandedCats]    = useState<Set<string>>(new Set());
   const [expandedSubcats, setExpandedSubcats] = useState<Set<string>>(new Set());
 
+  const toggleCanale = useCallback((c: string) =>
+    setExpandedCanali(p  => { const s = new Set(p); s.has(c) ? s.delete(c) : s.add(c); return s; }), []);
   const toggleBrand  = useCallback((b: string) =>
     setExpandedBrands(p  => { const s = new Set(p); s.has(b) ? s.delete(b) : s.add(b); return s; }), []);
   const toggleCat    = useCallback((k: string) =>
@@ -370,60 +372,75 @@ function HierarchicalBridgeTable({
   const toggleSubcat = useCallback((k: string) =>
     setExpandedSubcats(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
 
-  const nodes = useMemo<HierBrandNode[]>(() => {
-    const brandMap = new Map<string, ComparedLine[]>();
+  const nodes = useMemo<HierCanaleNode[]>(() => {
+    const canaleMap = new Map<string, ComparedLine[]>();
     for (const l of allLines) {
-      const b = l.brand || 'N/D';
-      if (!brandMap.has(b)) brandMap.set(b, []);
-      brandMap.get(b)!.push(l);
+      const cn = l.canale || 'N/D';
+      if (!canaleMap.has(cn)) canaleMap.set(cn, []);
+      canaleMap.get(cn)!.push(l);
     }
-    return [...brandMap.entries()].map(([brand, bLines]) => {
-      const catMap = new Map<string, ComparedLine[]>();
-      for (const l of bLines) {
-        const c = l.categoria || 'N/D';
-        if (!catMap.has(c)) catMap.set(c, []);
-        catMap.get(c)!.push(l);
+    return [...canaleMap.entries()].map(([canale, cnLines]) => {
+      const brandMap = new Map<string, ComparedLine[]>();
+      for (const l of cnLines) {
+        const b = l.brand || 'N/D';
+        if (!brandMap.has(b)) brandMap.set(b, []);
+        brandMap.get(b)!.push(l);
       }
-      const categorias: HierCatNode[] = [...catMap.entries()].map(([cat, cLines]) => {
-        const scMap = new Map<string, ComparedLine[]>();
-        for (const l of cLines) {
-          const s = l.sottocategoria || 'N/D';
-          if (!scMap.has(s)) scMap.set(s, []);
-          scMap.get(s)!.push(l);
+      const brands: HierBrandNode[] = [...brandMap.entries()].map(([brand, bLines]) => {
+        const catMap = new Map<string, ComparedLine[]>();
+        for (const l of bLines) {
+          const c = l.categoria || 'N/D';
+          if (!catMap.has(c)) catMap.set(c, []);
+          catMap.get(c)!.push(l);
         }
-        const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
-          const fmtMap = new Map<string, ComparedLine[]>();
-          for (const l of sLines) {
-            const f = l.formato || l.descrizione || l.codice || 'N/D';
-            if (!fmtMap.has(f)) fmtMap.set(f, []);
-            fmtMap.get(f)!.push(l);
+        const categorias: HierCatNode[] = [...catMap.entries()].map(([cat, cLines]) => {
+          const scMap = new Map<string, ComparedLine[]>();
+          for (const l of cLines) {
+            const s = l.sottocategoria || 'N/D';
+            if (!scMap.has(s)) scMap.set(s, []);
+            scMap.get(s)!.push(l);
           }
-          const formati: HierLeafNode[] = [...fmtMap.entries()].map(([formato, fLines]) => ({
-            formato, bridge: computeGroupBridge(fLines),
-          }));
-          return { subcat, bridge: computeGroupBridge(sLines), formati };
+          const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
+            const fmtMap = new Map<string, ComparedLine[]>();
+            for (const l of sLines) {
+              const f = l.formato || l.descrizione || l.codice || 'N/D';
+              if (!fmtMap.has(f)) fmtMap.set(f, []);
+              fmtMap.get(f)!.push(l);
+            }
+            const formati: HierLeafNode[] = [...fmtMap.entries()].map(([formato, fLines]) => ({
+              formato, bridge: computeGroupBridge(fLines),
+            }));
+            return { subcat, bridge: computeGroupBridge(sLines), formati };
+          });
+          return { cat, bridge: computeGroupBridge(cLines), subcats };
         });
-        return { cat, bridge: computeGroupBridge(cLines), subcats };
+        return { brand, bridge: computeGroupBridge(bLines), categorias };
       });
-      return { brand, bridge: computeGroupBridge(bLines), categorias };
+      return { canale, bridge: computeGroupBridge(cnLines), brands };
     });
   }, [allLines]);
 
   // Default: expand all levels whenever data changes
   useEffect(() => {
     if (!nodes.length) return;
+    const canali = new Set<string>();
     const brands = new Set<string>();
     const cats   = new Set<string>();
     const scats  = new Set<string>();
-    for (const { brand, categorias } of nodes) {
-      brands.add(brand);
-      for (const { cat, subcats } of categorias) {
-        cats.add(`${brand}|${cat}`);
-        for (const { subcat } of subcats) {
-          scats.add(`${brand}|${cat}|${subcat}`);
+    for (const { canale, brands: bs } of nodes) {
+      canali.add(canale);
+      for (const { brand, categorias } of bs) {
+        const bKey = `${canale}|${brand}`;
+        brands.add(bKey);
+        for (const { cat, subcats } of categorias) {
+          cats.add(`${bKey}|${cat}`);
+          for (const { subcat } of subcats) {
+            scats.add(`${bKey}|${cat}|${subcat}`);
+          }
         }
       }
     }
+    setExpandedCanali(canali);
     setExpandedBrands(brands);
     setExpandedCats(cats);
     setExpandedSubcats(scats);
@@ -451,99 +468,128 @@ function HierarchicalBridgeTable({
           </tr>
         </thead>
         <tbody>
-          {nodes.map(({ brand, bridge: bb, categorias }) => {
-            const bExp = expandedBrands.has(brand);
+          {nodes.map(({ canale, bridge: cnb, brands }) => {
+            const cnExp = expandedCanali.has(canale);
             return (
-              <Fragment key={brand}>
-                {/* ── Brand row ── */}
-                <tr className="bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors border-b border-slate-600"
-                    onClick={() => toggleBrand(brand)}>
-                  <td className="px-3 py-2.5 font-bold text-white">
+              <Fragment key={canale}>
+                {/* ── Canale row ── */}
+                <tr className="bg-slate-950 hover:bg-slate-900 cursor-pointer transition-colors border-b border-slate-700"
+                    onClick={() => toggleCanale(canale)}>
+                  <td className="px-3 py-3 font-bold text-violet-300 text-[11px] uppercase tracking-widest">
                     <div className="flex items-center gap-1.5">
-                      {bExp ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                            : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
-                      {brand}
+                      {cnExp ? <ChevronDown className="w-4 h-4 text-violet-400 flex-shrink-0" />
+                             : <ChevronRight className="w-4 h-4 text-violet-400 flex-shrink-0" />}
+                      {canale}
                     </div>
                   </td>
-                  <CosPctCell v={bb.cosP1} />
-                  <BridgeCell v={bb.effVolume} />
+                  <CosPctCell v={cnb.cosP1} />
+                  <BridgeCell v={cnb.effVolume} />
+                  <BridgeCell v={cnb.effMixCategoria} />
                   <BridgeCell v={0} alwaysZero />
-                  <BridgeCell v={bb.effMixCategoria} />
-                  <BridgeCell v={bb.effMixSottocategoria} />
-                  <BridgeCell v={bb.effMixReferenza} />
-                  <BridgeCell v={bb.effPrezzo} />
-                  <BridgeCell v={bb.effCosto} />
-                  <CosPctCell v={bb.cosP2} />
+                  <BridgeCell v={cnb.effMixSottocategoria} />
+                  <BridgeCell v={cnb.effMixReferenza} />
+                  <BridgeCell v={cnb.effPrezzo} />
+                  <BridgeCell v={cnb.effCosto} />
+                  <CosPctCell v={cnb.cosP2} />
                 </tr>
 
-                {/* ── Categoria rows ── */}
-                {bExp && categorias.map(({ cat, bridge: cb, subcats }) => {
-                  const catKey = `${brand}|${cat}`;
-                  const cExp = expandedCats.has(catKey);
+                {/* ── Brand rows ── */}
+                {cnExp && brands.map(({ brand, bridge: bb, categorias }) => {
+                  const bKey = `${canale}|${brand}`;
+                  const bExp = expandedBrands.has(bKey);
                   return (
-                    <Fragment key={catKey}>
-                      <tr className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors border-b border-slate-200"
-                          onClick={() => toggleCat(catKey)}>
-                        <td className="px-3 py-2 text-slate-700 font-semibold">
+                    <Fragment key={bKey}>
+                      <tr className="bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors border-b border-slate-600"
+                          onClick={() => toggleBrand(bKey)}>
+                        <td className="px-3 py-2.5 font-bold text-white">
                           <div className="flex items-center gap-1.5 pl-5">
-                            {cExp ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                  : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />}
-                            {cat}
+                            {bExp ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                            {brand}
                           </div>
                         </td>
-                        <CosPctCell v={cb.cosP1} py="py-2" />
-                        <BridgeCell v={cb.effVolume} />
+                        <CosPctCell v={bb.cosP1} />
+                        <BridgeCell v={bb.effVolume} />
                         <BridgeCell v={0} alwaysZero />
-                        <BridgeCell v={0} alwaysZero />
-                        <BridgeCell v={cb.effMixSottocategoria} />
-                        <BridgeCell v={cb.effMixReferenza} />
-                        <BridgeCell v={cb.effPrezzo} />
-                        <BridgeCell v={cb.effCosto} />
-                        <CosPctCell v={cb.cosP2} py="py-2" />
+                        <BridgeCell v={bb.effMixCategoria} />
+                        <BridgeCell v={bb.effMixSottocategoria} />
+                        <BridgeCell v={bb.effMixReferenza} />
+                        <BridgeCell v={bb.effPrezzo} />
+                        <BridgeCell v={bb.effCosto} />
+                        <CosPctCell v={bb.cosP2} />
                       </tr>
 
-                      {/* ── Sottocategoria rows ── */}
-                      {cExp && subcats.map(({ subcat, bridge: sb, formati }) => {
-                        const scKey = `${catKey}|${subcat}`;
-                        const sExp = expandedSubcats.has(scKey);
+                      {/* ── Categoria rows ── */}
+                      {bExp && categorias.map(({ cat, bridge: cb, subcats }) => {
+                        const catKey = `${bKey}|${cat}`;
+                        const cExp = expandedCats.has(catKey);
                         return (
-                          <Fragment key={scKey}>
-                            <tr className="bg-white hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100"
-                                onClick={() => toggleSubcat(scKey)}>
-                              <td className="px-3 py-1.5 text-slate-600">
+                          <Fragment key={catKey}>
+                            <tr className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors border-b border-slate-200"
+                                onClick={() => toggleCat(catKey)}>
+                              <td className="px-3 py-2 text-slate-700 font-semibold">
                                 <div className="flex items-center gap-1.5 pl-10">
-                                  {sExp ? <ChevronDown className="w-3 h-3 text-slate-300 flex-shrink-0" />
-                                        : <ChevronRight className="w-3 h-3 text-slate-300 flex-shrink-0" />}
-                                  {subcat}
+                                  {cExp ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                        : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />}
+                                  {cat}
                                 </div>
                               </td>
-                              <CosPctCell v={sb.cosP1} py="py-1.5" />
-                              <BridgeCell v={sb.effVolume} />
+                              <CosPctCell v={cb.cosP1} py="py-2" />
+                              <BridgeCell v={cb.effVolume} />
                               <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={0} alwaysZero />
-                              <BridgeCell v={0} alwaysZero />
-                              <BridgeCell v={sb.effMixReferenza} />
-                              <BridgeCell v={sb.effPrezzo} />
-                              <BridgeCell v={sb.effCosto} />
-                              <CosPctCell v={sb.cosP2} py="py-1.5" />
+                              <BridgeCell v={cb.effMixSottocategoria} />
+                              <BridgeCell v={cb.effMixReferenza} />
+                              <BridgeCell v={cb.effPrezzo} />
+                              <BridgeCell v={cb.effCosto} />
+                              <CosPctCell v={cb.cosP2} py="py-2" />
                             </tr>
 
-                            {/* ── Formato (leaf) rows ── */}
-                            {sExp && formati.map(({ formato, bridge: fb }) => (
-                              <tr key={`${scKey}|${formato}`}
-                                  className="bg-slate-50/50 border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                <td className="px-3 py-1 text-slate-400 text-[10px] pl-16">{formato}</td>
-                                <CosPctCell v={fb.cosP1} py="py-1" size="text-[10px]" />
-                                <BridgeCell v={fb.effVolume} />
-                                <BridgeCell v={0} alwaysZero />
-                                <BridgeCell v={0} alwaysZero />
-                                <BridgeCell v={0} alwaysZero />
-                                <BridgeCell v={0} alwaysZero />
-                                <BridgeCell v={fb.effPrezzo} />
-                                <BridgeCell v={fb.effCosto} />
-                                <CosPctCell v={fb.cosP2} py="py-1" size="text-[10px]" />
-                              </tr>
-                            ))}
+                            {/* ── Sottocategoria rows ── */}
+                            {cExp && subcats.map(({ subcat, bridge: sb, formati }) => {
+                              const scKey = `${catKey}|${subcat}`;
+                              const sExp = expandedSubcats.has(scKey);
+                              return (
+                                <Fragment key={scKey}>
+                                  <tr className="bg-white hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100"
+                                      onClick={() => toggleSubcat(scKey)}>
+                                    <td className="px-3 py-1.5 text-slate-600">
+                                      <div className="flex items-center gap-1.5 pl-16">
+                                        {sExp ? <ChevronDown className="w-3 h-3 text-slate-300 flex-shrink-0" />
+                                              : <ChevronRight className="w-3 h-3 text-slate-300 flex-shrink-0" />}
+                                        {subcat}
+                                      </div>
+                                    </td>
+                                    <CosPctCell v={sb.cosP1} py="py-1.5" />
+                                    <BridgeCell v={sb.effVolume} />
+                                    <BridgeCell v={0} alwaysZero />
+                                    <BridgeCell v={0} alwaysZero />
+                                    <BridgeCell v={0} alwaysZero />
+                                    <BridgeCell v={sb.effMixReferenza} />
+                                    <BridgeCell v={sb.effPrezzo} />
+                                    <BridgeCell v={sb.effCosto} />
+                                    <CosPctCell v={sb.cosP2} py="py-1.5" />
+                                  </tr>
+
+                                  {/* ── Formato (leaf) rows ── */}
+                                  {sExp && formati.map(({ formato, bridge: fb }) => (
+                                    <tr key={`${scKey}|${formato}`}
+                                        className="bg-slate-50/50 border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                                      <td className="px-3 py-1 text-slate-400 text-[10px] pl-20">{formato}</td>
+                                      <CosPctCell v={fb.cosP1} py="py-1" size="text-[10px]" />
+                                      <BridgeCell v={fb.effVolume} />
+                                      <BridgeCell v={0} alwaysZero />
+                                      <BridgeCell v={0} alwaysZero />
+                                      <BridgeCell v={0} alwaysZero />
+                                      <BridgeCell v={0} alwaysZero />
+                                      <BridgeCell v={fb.effPrezzo} />
+                                      <BridgeCell v={fb.effCosto} />
+                                      <CosPctCell v={fb.cosP2} py="py-1" size="text-[10px]" />
+                                    </tr>
+                                  ))}
+                                </Fragment>
+                              );
+                            })}
                           </Fragment>
                         );
                       })}
