@@ -666,7 +666,9 @@ const SYSTEM_PROMPT_BASE =
   '(2) driver dominante che lo spiega con dettaglio quantitativo, ' +
   '(3) implicazioni strategiche e rischi da monitorare, ' +
   '(4) due raccomandazioni operative concrete e prioritizzate. ' +
-  'Tra 180 e 220 parole in totale. Tono professionale e diretto.';
+  'Tra 180 e 220 parole in totale. Tono professionale e diretto. ' +
+  'REGOLA ASSOLUTA: non usare mai le parole "margine di contribuzione" — ' +
+  'usa esclusivamente "margine".';
 
 const SYSTEM_PROMPTS = {
   varianza: SYSTEM_PROMPT_BASE,
@@ -675,16 +677,43 @@ const SYSTEM_PROMPTS = {
 };
 
 function buildVarianzaPrompt(data) {
-  const { marginPctP1, marginPctP2, varianzaTotale, effVolume, effMix, effPrezzo, effCosto, totalRev1, totalRev2 } = data;
+  const {
+    marginPctP1, marginPctP2, varianzaTotale,
+    effVolume, effMix, effPrezzo, effCosto,
+    totalRev1, totalRev2, totalMargin1, totalMargin2,
+    mixCanale, mixBrand, mixCategoria, mixSottocategoria, mixFormato, mixResiduo,
+  } = data;
   const pp  = v => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp`;
   const pct = v => `${(v * 100).toFixed(2)}%`;
   const eur = v => `€${Math.round(v).toLocaleString('it-IT')}`;
+
+  const mixDetail = [
+    mixCanale        != null ? `Canale ${pp(mixCanale)}`               : null,
+    mixBrand         != null ? `Brand ${pp(mixBrand)}`                 : null,
+    mixCategoria     != null ? `Categoria ${pp(mixCategoria)}`         : null,
+    mixSottocategoria!= null ? `Sottocategoria ${pp(mixSottocategoria)}`: null,
+    mixFormato       != null ? `Formato ${pp(mixFormato)}`             : null,
+    mixResiduo       != null ? `Residuo referenze ${pp(mixResiduo)}`   : null,
+  ].filter(Boolean).join(' | ');
+
   return [
-    'Varianza marginalità:',
-    `Margine: ${pct(marginPctP1)} → ${pct(marginPctP2)} (${pp(varianzaTotale)})`,
-    `Effetti: Volume ${pp(effVolume)} | Mix ${pp(effMix)} | Prezzo ${pp(effPrezzo)} | Costo ${pp(effCosto)}`,
+    'Analisi varianza margine:',
+    `Margine P1: ${pct(marginPctP1)} → Margine P2: ${pct(marginPctP2)} (variazione totale: ${pp(varianzaTotale)})`,
+    `Margine assoluto: ${eur(totalMargin1)} → ${eur(totalMargin2)}`,
     `Fatturato: ${eur(totalRev1)} → ${eur(totalRev2)}`,
-  ].join('\n');
+    '',
+    'Scomposizione effetti:',
+    `• Effetto Volume: ${pp(effVolume)} — misura l'impatto della variazione delle quantità totali vendute a parità di mix e prezzi P1; per costruzione tende a zero.`,
+    `• Effetto Mix: ${pp(effMix)} — misura come il cambiamento nella composizione del portafoglio (canali, brand, categorie, formati, referenze) ha impattato il margine a prezzi P1.`,
+    mixDetail ? `  Dettaglio mix gerarchico: ${mixDetail}` : null,
+    `  — Mix Canale: spostamento di volumi tra canali di vendita (es. online vs retail).`,
+    `  — Mix Brand: variazione del peso dei brand all'interno di ogni canale.`,
+    `  — Mix Categoria/Sottocategoria: riequilibrio tra famiglie di prodotto.`,
+    `  — Mix Formato: spostamento tra formati/confezioni (alto vs basso margine).`,
+    `  — Residuo referenze: effetto mix puro a livello di singola referenza/servizio.`,
+    `• Effetto Prezzo: ${pp(effPrezzo)} — impatto della variazione dei prezzi di vendita unitari a quantità e costi P1 invariati.`,
+    `• Effetto Costo: ${pp(effCosto)} — impatto della variazione dei costi unitari di acquisto/produzione a quantità e prezzi P2 invariati.`,
+  ].filter(v => v != null).join('\n');
 }
 
 function buildBilancioPrompt(data) {

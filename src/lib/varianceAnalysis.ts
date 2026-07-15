@@ -1459,16 +1459,21 @@ export function computeVarianceEffects(
 // ─── generateInsights (deterministic) ────────────────────────────────────────
 
 export function generateInsights(e: EffectsResult): AIInsight[] {
+  const md           = e.mixDecomposition;
   const revGrowth    = e.totalRev1 > 0 ? (e.totalRev2 - e.totalRev1) / e.totalRev1 * 100 : 0;
   const effPrPct     = e.effPrezzo * 100;
   const effCoPct     = e.effCosto  * 100;
+  const effMixPct    = e.effMix    * 100;
   const marginGrowth = e.totalMargin1 !== 0
     ? (e.totalMargin2 - e.totalMargin1) / Math.abs(e.totalMargin1) * 100 : 0;
   const deltaMargPct = (e.marginPctP2 - e.marginPctP1) * 100;
 
   const pos = (n: number) => n >= 0 ? '+' : '';
+  const pp  = (n: number) => `${pos(n)}${(n * 100).toFixed(2)} pp`;
+  const MIN = 0.0005; // soglia 0.05 pp per mostrare un livello
   const insights: AIInsight[] = [];
 
+  // ── 1. Fatturato ────────────────────────────────────────────────────────────
   if (revGrowth > 10)
     insights.push({ title: 'Crescita Fatturato Significativa', type: 'positive',
       text: `Il fatturato è cresciuto del ${revGrowth.toFixed(1)}% (da ${fmtE(e.totalRev1)} a ${fmtE(e.totalRev2)}), segnalando una forte espansione commerciale.` });
@@ -1479,32 +1484,64 @@ export function generateInsights(e: EffectsResult): AIInsight[] {
     insights.push({ title: 'Contrazione Fatturato', type: 'negative',
       text: `Il fatturato si è ridotto del ${Math.abs(revGrowth).toFixed(1)}% (da ${fmtE(e.totalRev1)} a ${fmtE(e.totalRev2)}). Si raccomanda un'analisi dei volumi e del portafoglio.` });
 
+  // ── 2. Effetto Mix — spiegazione per livello ─────────────────────────────────
+  const mixParts: string[] = [];
+  if (Math.abs(md.canale)         > MIN) mixParts.push(
+    `Mix Canale ${pp(md.canale)}: lo spostamento di volumi tra canali di vendita (es. online, retail, wholesale) ha ${md.canale > 0 ? 'migliorato' : 'penalizzato'} il margine — i canali ${md.canale > 0 ? 'più profittevoli' : 'meno profittevoli'} pesano di più in P2`);
+  if (Math.abs(md.brand)          > MIN) mixParts.push(
+    `Mix Brand ${pp(md.brand)}: la variazione del peso dei brand all'interno di ogni canale ha ${md.brand > 0 ? 'beneficiato' : 'penalizzato'} il margine — i brand ${md.brand > 0 ? 'ad alto margine acquistano' : 'a basso margine acquistano'} quota`);
+  if (Math.abs(md.categoria)      > MIN) mixParts.push(
+    `Mix Categoria ${pp(md.categoria)}: il riequilibrio tra categorie di prodotto ha ${md.categoria > 0 ? 'migliorato' : 'ridotto'} il margine medio`);
+  if (Math.abs(md.sottocategoria) > MIN) mixParts.push(
+    `Mix Sottocategoria ${pp(md.sottocategoria)}: la variazione del peso delle sottocategorie ha ${md.sottocategoria > 0 ? 'migliorato' : 'ridotto'} il margine`);
+  if (Math.abs(md.formato)        > MIN) mixParts.push(
+    `Mix Formato ${pp(md.formato)}: lo spostamento tra formati/confezioni ha ${md.formato > 0 ? 'favorito' : 'penalizzato'} il margine — i formati ${md.formato > 0 ? 'ad alto margine crescono' : 'a basso margine crescono'}`);
+  if (Math.abs(md.residuo)        > MIN) mixParts.push(
+    `Residuo referenze ${pp(md.residuo)}: all'interno dei singoli formati, il mix tra referenze specifiche ha avuto impatto ${md.residuo > 0 ? 'positivo' : 'negativo'} sul margine`);
+
+  if (Math.abs(effMixPct) < 0.05) {
+    insights.push({ title: 'Effetto Mix Neutro', type: 'neutral',
+      text: `L'effetto mix complessivo è trascurabile (${pp(e.effMix)}): la composizione del portafoglio non ha subito variazioni significative tra i due periodi.` });
+  } else {
+    const mixType: AIInsight['type'] = effMixPct >= 1 ? 'positive' : effMixPct <= -1 ? 'negative' : 'neutral';
+    const intro = effMixPct >= 0
+      ? `Il mix di portafoglio ha contribuito positivamente al margine di ${pp(e.effMix)}.`
+      : `Il mix di portafoglio ha penalizzato il margine di ${Math.abs(effMixPct).toFixed(2)} pp (${pp(e.effMix)}).`;
+    const detail = mixParts.length
+      ? ` Scomposizione per livello: ${mixParts.join('. ')}.`
+      : '';
+    insights.push({ title: `Effetto Mix ${pp(e.effMix)}`, type: mixType, text: intro + detail });
+  }
+
+  // ── 3. Effetto Prezzo ────────────────────────────────────────────────────────
   if (effPrPct > 2)
     insights.push({ title: 'Effetto Prezzo Positivo', type: 'positive',
-      text: `L'effetto prezzo contribuisce con ${pos(effPrPct)}${effPrPct.toFixed(2)} pp alla marginalità.` });
+      text: `L'effetto prezzo contribuisce con ${pos(effPrPct)}${effPrPct.toFixed(2)} pp al margine: i prezzi di vendita medi sono aumentati rispetto al periodo precedente.` });
   else if (effPrPct < -2)
     insights.push({ title: 'Pressione sui Prezzi di Vendita', type: 'negative',
-      text: `L'effetto prezzo erode ${Math.abs(effPrPct).toFixed(2)} pp di marginalità.` });
+      text: `L'effetto prezzo erode ${Math.abs(effPrPct).toFixed(2)} pp di margine: i prezzi di vendita medi si sono ridotti o si è spostato il volume verso referenze più economiche.` });
   else
     insights.push({ title: 'Prezzi Sostanzialmente Stabili', type: 'neutral',
-      text: `L'effetto prezzo è contenuto (${pos(effPrPct)}${effPrPct.toFixed(2)} pp).` });
+      text: `L'effetto prezzo è contenuto (${pos(effPrPct)}${effPrPct.toFixed(2)} pp): le variazioni di listino non hanno avuto impatto significativo sul margine.` });
 
+  // ── 4. Effetto Costo ─────────────────────────────────────────────────────────
   if (effCoPct > 2)
     insights.push({ title: 'Riduzione dei Costi di Acquisto', type: 'positive',
-      text: `L'effetto costo apporta ${pos(effCoPct)}${effCoPct.toFixed(2)} pp alla marginalità.` });
+      text: `L'effetto costo apporta ${pos(effCoPct)}${effCoPct.toFixed(2)} pp al margine: i costi unitari di acquisto o produzione sono diminuiti rispetto al periodo base.` });
   else if (effCoPct < -2)
     insights.push({ title: 'Incremento dei Costi di Acquisto', type: 'negative',
-      text: `L'effetto costo comprime la marginalità di ${Math.abs(effCoPct).toFixed(2)} pp.` });
+      text: `L'effetto costo comprime il margine di ${Math.abs(effCoPct).toFixed(2)} pp: i costi unitari sono aumentati — analizzare materie prime, tariffe fornitori e costi di produzione.` });
   else
     insights.push({ title: 'Costi di Acquisto Stabili', type: 'neutral',
-      text: `L'effetto costo è marginale (${pos(effCoPct)}${effCoPct.toFixed(2)} pp).` });
+      text: `L'effetto costo è trascurabile (${pos(effCoPct)}${effCoPct.toFixed(2)} pp): i costi unitari non hanno subito variazioni rilevanti tra i due periodi.` });
 
+  // ── 5. Margine assoluto ──────────────────────────────────────────────────────
   if (e.totalMargin2 >= e.totalMargin1)
-    insights.push({ title: 'Creazione di Valore in Crescita', type: 'positive',
-      text: `Il margine assoluto è cresciuto di ${fmtE(e.totalMargin2 - e.totalMargin1)} (+${marginGrowth.toFixed(1)}%), raggiungendo ${fmtE(e.totalMargin2)}.${deltaMargPct >= 0 ? '' : ` La marginalità % si riduce di ${Math.abs(deltaMargPct).toFixed(2)} pp.`}` });
+    insights.push({ title: 'Margine Assoluto in Crescita', type: 'positive',
+      text: `Il margine assoluto è cresciuto di ${fmtE(e.totalMargin2 - e.totalMargin1)} (+${marginGrowth.toFixed(1)}%), raggiungendo ${fmtE(e.totalMargin2)}.${deltaMargPct >= 0 ? '' : ` Il margine % si riduce di ${Math.abs(deltaMargPct).toFixed(2)} pp.`}` });
   else
     insights.push({ title: 'Margine Assoluto in Contrazione', type: 'negative',
-      text: `Il margine assoluto si è ridotto di ${fmtE(Math.abs(e.totalMargin2 - e.totalMargin1))} (${marginGrowth.toFixed(1)}%).` });
+      text: `Il margine assoluto si è ridotto di ${fmtE(Math.abs(e.totalMargin2 - e.totalMargin1))} (${marginGrowth.toFixed(1)}%), scendendo a ${fmtE(e.totalMargin2)}.` });
 
   return insights;
 }
