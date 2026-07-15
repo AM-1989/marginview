@@ -110,10 +110,11 @@ export interface ComparedLine {
   mix2: number;   // q2 / Q2
 
   // ── Mix decomposition intermediate quantities (set by computeMixDecomposition) ──
-  qMixBrand?:   number;   // Q2_brand   × (q1_i / Q1_brand)
-  qMixCat?:     number;   // Q2_bc      × (q1_i / Q1_bc)
-  qMixSubCat?:  number;   // Q2_bcs     × (q1_i / Q1_bcs)
-  qMixFormato?: number;   // Q2_bcsf    × (q1_i / Q1_bcsf)
+  qMixCanale?:  number;   // Q2_canale        × (q1_i / Q1_canale)
+  qMixBrand?:   number;   // Q2_canale_brand  × (q1_i / Q1_canale_brand)
+  qMixCat?:     number;   // Q2_cbc           × (q1_i / Q1_cbc)
+  qMixSubCat?:  number;   // Q2_cbcs          × (q1_i / Q1_cbcs)
+  qMixFormato?: number;   // Q2_cbcsf         × (q1_i / Q1_cbcsf)
 
   // ── Backward-compat aliases (raw values, null when period absent) ─────────
   p1: number | null;
@@ -207,19 +208,22 @@ export interface MixLevelGroup {
 }
 
 // Sequential hierarchical decomposition of effMix (all values in decimal pp, e.g. 0.023 = 2.3 pp)
+// Hierarchy: Canale → Brand → Categoria → Sottocategoria → Formato → Residuo
 export interface MixDecomposition {
-  brand:          number;  // marginal effect of brand-level mix shift
-  categoria:      number;  // marginal effect of brand×categoria mix shift
-  sottocategoria: number;  // marginal effect of brand×cat×subcat mix shift
-  formato:        number;  // marginal effect of brand×cat×subcat×formato mix shift
+  canale:         number;  // marginal effect of canale-level mix shift
+  brand:          number;  // marginal effect of brand mix shift (given canale)
+  categoria:      number;  // marginal effect of categoria mix shift (given canale+brand)
+  sottocategoria: number;  // marginal effect of subcat mix shift (given canale+brand+cat)
+  formato:        number;  // marginal effect of formato mix shift (given canale+brand+cat+subcat)
   residuo:        number;  // within-formato referenza-level residual
   totale:         number;  // = sum of above = effMix (verification, tolerance 0.001)
   // Per-group breakdown — each array is additive (sum = level's marginal effect)
-  brandBreakdown:          MixLevelGroup[];
-  categoriaBreakdown:      MixLevelGroup[];
-  sottocategoriaBreakdown: MixLevelGroup[];
-  formatoBreakdown:        MixLevelGroup[];
-  productBreakdown:        MixLevelGroup[];  // per referenza contribution to residuo
+  canaleBreakdown:          MixLevelGroup[];
+  brandBreakdown:           MixLevelGroup[];
+  categoriaBreakdown:       MixLevelGroup[];
+  sottocategoriaBreakdown:  MixLevelGroup[];
+  formatoBreakdown:         MixLevelGroup[];
+  productBreakdown:         MixLevelGroup[];  // per referenza contribution to residuo
 }
 
 export interface AIInsight {
@@ -765,19 +769,15 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   const marginPctV = revV > 0 ? (revV - costV) / revV : marginPctP1;
   const effVolume  = marginPctV - marginPctP1;
 
-  // Scenario M: actual q2_i for "both" products only, P1 effective prices, P1 effective costs.
-  // onlyP2 products are excluded from this scenario (their impact goes to effPrezzo).
-  // Rationale: including onlyP2 at fallback prices (price1Effective = price2Raw) would
-  // conflate their full revenue contribution with a pure mix shift. Excluding them keeps
-  // Mix focused on portfolio rebalancing among stable products, while the appearance of
-  // new products (and their pricing level) is captured in the Price scenario.
-  // onlyP1 products: q2 = 0 → contribute 0 naturally → negative mix contribution.
+  // Scenario M: actual q2_i quantities × P1 effective prices/costs for ALL products.
+  // onlyP2: price1Effective = price2Raw (fallback) → effPrezzo = 0 for them → their
+  // entire margin contribution lands in effMix, per Alessio's spec: "un codice non
+  // presente in uno dei due periodi → variazione integralmente sull'effetto mix."
+  // onlyP1: q2 = 0 → contribute 0 naturally.
   let revM = 0, costM = 0;
   for (const l of lines) {
-    if (l.presence !== 'onlyP2') {
-      revM  += l.q2 * l.price1Effective;
-      costM += l.q2 * l.unitCost1Effective;
-    }
+    revM  += l.q2 * l.price1Effective;
+    costM += l.q2 * l.unitCost1Effective;
   }
   const marginPctM = revM > 0 ? (revM - costM) / revM : marginPctV;
   const effMix     = marginPctM - marginPctV;
@@ -1031,56 +1031,75 @@ function computeMixDecomposition(
     return { marginPct: revS > 0 ? (revS - costS) / revS : marginPctV, groupQ1, groupQ2 };
   }
 
-  // Level 1: Brand — original formula, no ancestor check
+  // Level 0: Canale — no ancestor check
+  const resCanale = buildScenario(
+    l => l.canale || 'N/D',
+    (l, q) => { l.qMixCanale = q; },
+  );
+  const mpctCanale = resCanale.marginPct;
+
+  // Level 1: Brand (within Canale) — require Q1_canale > 0
   const resBrand = buildScenario(
-    l => l.brand || 'N/D',
+    l => `${l.canale || 'N/D'}|${l.brand || 'N/D'}`,
     (l, q) => { l.qMixBrand = q; },
+    l => (resCanale.groupQ1.get(l.canale || 'N/D') ?? 0) > 0,
   );
   const mpctBrand = resBrand.marginPct;
 
-  // Level 2: Categoria — also require Q1_brand > 0
+  // Level 2: Categoria (within Canale+Brand) — require Q1_cb > 0 and Q1_canale > 0
   const resCat = buildScenario(
-    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
+    l => `${l.canale || 'N/D'}|${l.brand || 'N/D'}|${l.categoria || 'N/D'}`,
     (l, q) => { l.qMixCat = q; },
-    l => (resBrand.groupQ1.get(l.brand || 'N/D') ?? 0) > 0,
+    l => {
+      const cb = `${l.canale || 'N/D'}|${l.brand || 'N/D'}`;
+      return (resBrand.groupQ1.get(cb) ?? 0) > 0 && (resCanale.groupQ1.get(l.canale || 'N/D') ?? 0) > 0;
+    },
   );
   const mpctCat = resCat.marginPct;
 
-  // Level 3: SubCat — also require Q1_bc > 0 and Q1_brand > 0
+  // Level 3: SubCat (within Canale+Brand+Cat)
   const resSubCat = buildScenario(
-    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
+    l => `${l.canale || 'N/D'}|${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}`,
     (l, q) => { l.qMixSubCat = q; },
     l => {
-      const bc = `${l.brand || 'N/D'}|${l.categoria || 'N/D'}`;
-      return (resCat.groupQ1.get(bc) ?? 0) > 0 && (resBrand.groupQ1.get(l.brand || 'N/D') ?? 0) > 0;
+      const c   = l.canale || 'N/D';
+      const cb  = `${c}|${l.brand || 'N/D'}`;
+      const cbc = `${cb}|${l.categoria || 'N/D'}`;
+      return (resCat.groupQ1.get(cbc) ?? 0) > 0
+          && (resBrand.groupQ1.get(cb) ?? 0) > 0
+          && (resCanale.groupQ1.get(c) ?? 0) > 0;
     },
   );
   const mpctSubCat = resSubCat.marginPct;
 
-  // Level 4: Formato — also require Q1_bcs > 0, Q1_bc > 0, Q1_brand > 0
+  // Level 4: Formato (within Canale+Brand+Cat+SubCat)
   const resFormato = buildScenario(
-    l => `${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}|${l.formato || 'N/D'}`,
+    l => `${l.canale || 'N/D'}|${l.brand || 'N/D'}|${l.categoria || 'N/D'}|${l.sottocategoria || 'N/D'}|${l.formato || 'N/D'}`,
     (l, q) => { l.qMixFormato = q; },
     l => {
-      const b   = l.brand || 'N/D';
-      const bc  = `${b}|${l.categoria || 'N/D'}`;
-      const bcs = `${bc}|${l.sottocategoria || 'N/D'}`;
-      return (resSubCat.groupQ1.get(bcs) ?? 0) > 0
-          && (resCat.groupQ1.get(bc) ?? 0) > 0
-          && (resBrand.groupQ1.get(b) ?? 0) > 0;
+      const c    = l.canale || 'N/D';
+      const cb   = `${c}|${l.brand || 'N/D'}`;
+      const cbc  = `${cb}|${l.categoria || 'N/D'}`;
+      const cbcs = `${cbc}|${l.sottocategoria || 'N/D'}`;
+      return (resSubCat.groupQ1.get(cbcs) ?? 0) > 0
+          && (resCat.groupQ1.get(cbc) ?? 0) > 0
+          && (resBrand.groupQ1.get(cb) ?? 0) > 0
+          && (resCanale.groupQ1.get(c) ?? 0) > 0;
     },
   );
   const mpctFormato = resFormato.marginPct;
 
-  const brand         = mpctBrand   - marginPctV;
+  const canale        = mpctCanale  - marginPctV;
+  const brand         = mpctBrand   - mpctCanale;
   const categoria     = mpctCat     - mpctBrand;
   const sottocategoria = mpctSubCat - mpctCat;
   const formato       = mpctFormato - mpctSubCat;
   const residuo       = marginPctM  - mpctFormato;
-  const totale        = brand + categoria + sottocategoria + formato + residuo;
+  const totale        = canale + brand + categoria + sottocategoria + formato + residuo;
   const balanceErr    = Math.abs(totale - effMixTotal);
 
   dbg('─── mixDecomposition ──────────────────────────────────────────');
+  dbg('canale        ', (canale         * 100).toFixed(4), 'pp');
   dbg('brand         ', (brand          * 100).toFixed(4), 'pp');
   dbg('categoria     ', (categoria      * 100).toFixed(4), 'pp');
   dbg('sottocategoria', (sottocategoria * 100).toFixed(4), 'pp');
@@ -1091,16 +1110,13 @@ function computeMixDecomposition(
   if (balanceErr > 0.001) {
     console.warn('[VARIANCE] mixDecomposition quadrature FAILED — balance error:',
       (balanceErr * 100).toFixed(6), 'pp',
-      { brand, categoria, sottocategoria, formato, residuo, totale, effMixTotal });
+      { canale, brand, categoria, sottocategoria, formato, residuo, totale, effMixTotal });
   } else {
     dbg('quadrature ✓ — balance error:', (balanceErr * 100).toFixed(6), 'pp');
   }
   dbg('────────────────────────────────────────────────────────────────');
 
   // ── Per-group additive breakdown for each hierarchical level ─────────────
-  // For scenarios A → B: contrib_g = margin_contribution_g_B - margin_contribution_g_A
-  // where margin_contribution_g = (revB_g - costB_g) / revB_total
-  // Σ_g contrib_g = marginPctB - marginPctA  (exactly additive by construction)
 
   function levelBreakdown(
     keyFn: (l: ComparedLine) => string,
@@ -1135,23 +1151,28 @@ function computeMixDecomposition(
     return result.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
   }
 
-  const brandBreakdown = levelBreakdown(
-    l => l.brand || 'N/D',
+  const canaleBreakdown = levelBreakdown(
+    l => l.canale || 'N/D',
     l => Q2 * l.mix1,
+    l => l.qMixCanale ?? 0,
+  );
+  const brandBreakdown = levelBreakdown(
+    l => `${l.canale || 'N/D'} › ${l.brand || 'N/D'}`,
+    l => l.qMixCanale ?? 0,
     l => l.qMixBrand ?? 0,
   );
   const categoriaBreakdown = levelBreakdown(
-    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'}`,
+    l => `${l.canale || 'N/D'} › ${l.brand || 'N/D'} › ${l.categoria || 'N/D'}`,
     l => l.qMixBrand ?? 0,
     l => l.qMixCat ?? 0,
   );
   const sottocategoriaBreakdown = levelBreakdown(
-    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'}`,
+    l => `${l.canale || 'N/D'} › ${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'}`,
     l => l.qMixCat ?? 0,
     l => l.qMixSubCat ?? 0,
   );
   const formatoBreakdown = levelBreakdown(
-    l => `${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'} › ${l.formato || 'N/D'}`,
+    l => `${l.canale || 'N/D'} › ${l.brand || 'N/D'} › ${l.categoria || 'N/D'} › ${l.sottocategoria || 'N/D'} › ${l.formato || 'N/D'}`,
     l => l.qMixSubCat ?? 0,
     l => l.qMixFormato ?? 0,
   );
@@ -1162,8 +1183,8 @@ function computeMixDecomposition(
   );
 
   return {
-    brand, categoria, sottocategoria, formato, residuo, totale,
-    brandBreakdown, categoriaBreakdown, sottocategoriaBreakdown, formatoBreakdown, productBreakdown,
+    canale, brand, categoria, sottocategoria, formato, residuo, totale,
+    canaleBreakdown, brandBreakdown, categoriaBreakdown, sottocategoriaBreakdown, formatoBreakdown, productBreakdown,
   };
 }
 
@@ -1178,9 +1199,10 @@ export interface GroupBridgeResult {
   cosP1:                number | null;
   cosP2:                number | null;
   effVolume:            number;
-  effMixSottocategoria: number;  // Level 1: sottocategoria mix within group
-  effMixFormato:        number;  // Level 2: formato mix within sottocategoria
-  effMixReferenza:      number;  // Level 3: residual (referenza/product mix)
+  effMixBrand:          number;  // Level 1: brand mix within group (≈0 for single-brand subsets)
+  effMixSottocategoria: number;  // Level 2: subcat mix within brand
+  effMixFormato:        number;  // Level 3: formato mix within brand+subcat
+  effMixReferenza:      number;  // Level 4: residual (referenza/product mix)
   effPrezzo:            number;
   effCosto:             number;
   presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
@@ -1189,7 +1211,7 @@ export interface GroupBridgeResult {
 export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   if (!lines.length) {
     return { cosP1: null, cosP2: null, effVolume: 0,
-             effMixSottocategoria: 0, effMixFormato: 0, effMixReferenza: 0,
+             effMixBrand: 0, effMixSottocategoria: 0, effMixFormato: 0, effMixReferenza: 0,
              effPrezzo: 0, effCosto: 0, presence: 'both' };
   }
   const kpis = calculateBaseKpis(lines);
@@ -1207,71 +1229,58 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
     const cosP2 = kpis.totalRev2 > 0 ? kpis.marginPctP2 : kpis.marginPctP1;
     return {
       cosP1, cosP2,
-      effVolume: 0, effMixSottocategoria: 0, effMixFormato: 0,
+      effVolume: 0, effMixBrand: 0, effMixSottocategoria: 0, effMixFormato: 0,
       effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
       presence,
     };
   }
 
-  const eff  = calculateVarianceEffects(lines, kpis);
+  const eff = calculateVarianceEffects(lines, kpis);
   const { marginPctV } = eff;
 
-  // Helpers: sequential mix scenarios.
-  // Each scenario redistributes P2 quantities in P1 proportions at a given hierarchy level.
-  // onlyP2 products (q1=0) naturally receive qS=0 when Q1g>0 (absorbed by "both" peers).
+  // Sequential mix scenarios within the group (canale is already fixed by the subset).
+  // Level 1: Brand, Level 2: Subcat within Brand, Level 3: Formato within Brand+Subcat.
+  // Same formula as computeMixDecomposition: qS = Q2g × (q1_i / Q1g), fallback l.q2 when Q1g=0.
 
-  // Level 1 — Sottocategoria scenario
-  const scQ1 = new Map<string, number>();
-  const scQ2 = new Map<string, number>();
-  for (const l of lines) {
-    const k = l.sottocategoria || 'N/D';
-    scQ1.set(k, (scQ1.get(k) ?? 0) + l.q1);
-    scQ2.set(k, (scQ2.get(k) ?? 0) + l.q2);
+  function groupScenario(keyFn: (l: ComparedLine) => string): number {
+    const gQ1 = new Map<string, number>();
+    const gQ2 = new Map<string, number>();
+    for (const l of lines) {
+      const k = keyFn(l);
+      gQ1.set(k, (gQ1.get(k) ?? 0) + l.q1);
+      gQ2.set(k, (gQ2.get(k) ?? 0) + l.q2);
+    }
+    let rev = 0, cost = 0;
+    for (const l of lines) {
+      const k = keyFn(l);
+      const Q1g = gQ1.get(k) ?? 0;
+      const Q2g = gQ2.get(k) ?? 0;
+      const qS = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+      rev  += qS * l.price1Effective;
+      cost += qS * l.unitCost1Effective;
+    }
+    return rev > 0 ? (rev - cost) / rev : marginPctV;
   }
-  let revSc = 0, costSc = 0;
-  for (const l of lines) {
-    const k   = l.sottocategoria || 'N/D';
-    const Q1g = scQ1.get(k) ?? 0;
-    const Q2g = scQ2.get(k) ?? 0;
-    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
-    revSc  += qS * l.price1Effective;
-    costSc += qS * l.unitCost1Effective;
-  }
-  const marginPctSc          = revSc > 0 ? (revSc - costSc) / revSc : marginPctV;
-  const effMixSottocategoria = marginPctSc - marginPctV;
 
-  // Level 2 — Formato scenario (within each sottocategoria, redistribute by formato)
-  const fmtQ1 = new Map<string, number>();
-  const fmtQ2 = new Map<string, number>();
-  for (const l of lines) {
-    const k = `${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`;
-    fmtQ1.set(k, (fmtQ1.get(k) ?? 0) + l.q1);
-    fmtQ2.set(k, (fmtQ2.get(k) ?? 0) + l.q2);
-  }
-  let revFmt = 0, costFmt = 0;
-  for (const l of lines) {
-    const k   = `${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`;
-    const Q1g = fmtQ1.get(k) ?? 0;
-    const Q2g = fmtQ2.get(k) ?? 0;
-    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
-    revFmt  += qS * l.price1Effective;
-    costFmt += qS * l.unitCost1Effective;
-  }
-  const marginPctFmt = revFmt > 0 ? (revFmt - costFmt) / revFmt : marginPctSc;
-  const effMixFormato = marginPctFmt - marginPctSc;
+  const mpctBrand = groupScenario(l => l.brand || 'N/D');
+  const mpctSc    = groupScenario(l => `${l.brand || 'N/D'}§${l.sottocategoria || 'N/D'}`);
+  const mpctFmt   = groupScenario(l => `${l.brand || 'N/D'}§${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`);
 
-  // Level 3 — Referenza residual (remaining mix after sottocategoria + formato)
-  const effMixReferenza = eff.effMix - effMixSottocategoria - effMixFormato;
+  const effMixBrand          = mpctBrand - marginPctV;
+  const effMixSottocategoria = mpctSc    - mpctBrand;
+  const effMixFormato        = mpctFmt   - mpctSc;
+  const effMixReferenza      = eff.effMix - effMixBrand - effMixSottocategoria - effMixFormato;
 
   return {
-    cosP1:                kpis.marginPctP1,
-    cosP2:                kpis.marginPctP2,
-    effVolume:            eff.effVolume,
+    cosP1:  kpis.marginPctP1,
+    cosP2:  kpis.marginPctP2,
+    effVolume: eff.effVolume,
+    effMixBrand,
     effMixSottocategoria,
     effMixFormato,
     effMixReferenza,
-    effPrezzo:            eff.effPrezzo,
-    effCosto:             eff.effCosto,
+    effPrezzo: eff.effPrezzo,
+    effCosto:  eff.effCosto,
     presence,
   };
 }
@@ -1287,11 +1296,12 @@ export function validateQuantityConservation(
   tol = 0.001,
 ): boolean {
   const checks: [string, number][] = [
-    ['Σ q2',          lines.reduce((s, l) => s + l.q2,              0)],
-    ['Σ qMixBrand',   lines.reduce((s, l) => s + (l.qMixBrand   ?? 0), 0)],
-    ['Σ qMixCat',     lines.reduce((s, l) => s + (l.qMixCat     ?? 0), 0)],
-    ['Σ qMixSubCat',  lines.reduce((s, l) => s + (l.qMixSubCat  ?? 0), 0)],
-    ['Σ qMixFormato', lines.reduce((s, l) => s + (l.qMixFormato ?? 0), 0)],
+    ['Σ q2',           lines.reduce((s, l) => s + l.q2,               0)],
+    ['Σ qMixCanale',   lines.reduce((s, l) => s + (l.qMixCanale  ?? 0), 0)],
+    ['Σ qMixBrand',    lines.reduce((s, l) => s + (l.qMixBrand   ?? 0), 0)],
+    ['Σ qMixCat',      lines.reduce((s, l) => s + (l.qMixCat     ?? 0), 0)],
+    ['Σ qMixSubCat',   lines.reduce((s, l) => s + (l.qMixSubCat  ?? 0), 0)],
+    ['Σ qMixFormato',  lines.reduce((s, l) => s + (l.qMixFormato ?? 0), 0)],
   ];
 
   let ok = true;

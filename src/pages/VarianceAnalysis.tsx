@@ -52,6 +52,7 @@ function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   const md = effects.mixDecomposition;
 
   const rows = [
+    { label: 'Mix Canale',         value: md.canale         },
     { label: 'Mix Brand',          value: md.brand          },
     { label: 'Mix Categoria',      value: md.categoria      },
     { label: 'Mix Sottocategoria', value: md.sottocategoria },
@@ -396,7 +397,7 @@ function HierarchicalBridgeTable({
 
   const md = effects.mixDecomposition;
 
-  const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Sottocat.', 'Mix Formato', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
+  const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Canale', 'Mix Brand', 'Mix Sottocat.', 'Mix Formato', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
 
   return (
     <div className="overflow-x-auto">
@@ -432,8 +433,9 @@ function HierarchicalBridgeTable({
                   </td>
                   <CosPctCell v={cnb.cosP1} />
                   <BridgeCell v={cnb.effVolume} />
-                  <BridgeCell v={cnb.effMixSottocategoria} />
                   <BridgeCell v={0} alwaysZero />
+                  <BridgeCell v={cnb.effMixBrand} />
+                  <BridgeCell v={cnb.effMixSottocategoria} />
                   <BridgeCell v={cnb.effMixFormato} />
                   <BridgeCell v={cnb.effMixReferenza} />
                   <BridgeCell v={cnb.effPrezzo} />
@@ -458,6 +460,7 @@ function HierarchicalBridgeTable({
                         </td>
                         <CosPctCell v={bb.cosP1} />
                         <BridgeCell v={bb.effVolume} />
+                        <BridgeCell v={0} alwaysZero />
                         <BridgeCell v={0} alwaysZero />
                         <BridgeCell v={bb.effMixSottocategoria} />
                         <BridgeCell v={bb.effMixFormato} />
@@ -484,6 +487,7 @@ function HierarchicalBridgeTable({
                               </td>
                               <CosPctCell v={sb.cosP1} py="py-2" />
                               <BridgeCell v={sb.effVolume} />
+                              <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={sb.effMixFormato} />
@@ -513,6 +517,7 @@ function HierarchicalBridgeTable({
                                     <BridgeCell v={0} alwaysZero />
                                     <BridgeCell v={0} alwaysZero />
                                     <BridgeCell v={0} alwaysZero />
+                                    <BridgeCell v={0} alwaysZero />
                                     <BridgeCell v={fb.effMixReferenza} />
                                     <BridgeCell v={fb.effPrezzo} />
                                     <BridgeCell v={fb.effCosto} />
@@ -526,6 +531,7 @@ function HierarchicalBridgeTable({
                                       <td className="px-3 py-1 text-slate-400 text-[10px] pl-20 truncate max-w-[240px]" title={label}>{label}</td>
                                       <CosPctCell v={rb.cosP1} py="py-1" size="text-[10px]" />
                                       <BridgeCell v={rb.effVolume} />
+                                      <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
@@ -553,6 +559,7 @@ function HierarchicalBridgeTable({
             <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
             <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.canale)}`}>{fmtEff(md.canale)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria + md.sottocategoria)}`}>{fmtEff(md.categoria + md.sottocategoria)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato)}`}>{fmtEff(md.formato)}</td>
