@@ -50,50 +50,25 @@ const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500
 
 function MixEffectBreakdown({ effects }: { effects: EffectsResult }) {
   const md = effects.mixDecomposition;
-  const [open, setOpen] = useState<string | null>(null);
 
-  const rows: { label: string; value: number; breakdown: { name: string; contribution: number }[] }[] = [
-    { label: 'Mix Brand',          value: md.brand,          breakdown: md.brandBreakdown          },
-    { label: 'Mix Categoria',      value: md.categoria,      breakdown: md.categoriaBreakdown      },
-    { label: 'Mix Sottocategoria', value: md.sottocategoria, breakdown: md.sottocategoriaBreakdown },
-    { label: 'Mix Formato',        value: md.formato,        breakdown: md.formatoBreakdown        },
-    { label: 'Residuo (referenze)',value: md.residuo,        breakdown: md.productBreakdown        },
+  const rows = [
+    { label: 'Mix Brand',          value: md.brand          },
+    { label: 'Mix Categoria',      value: md.categoria      },
+    { label: 'Mix Sottocategoria', value: md.sottocategoria },
+    { label: 'Mix Formato',        value: md.formato        },
+    { label: 'Residuo (referenze)',value: md.residuo        },
   ];
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <h4 className="text-sm font-semibold text-slate-700 mb-3">Analisi Effetto Mix per Dimensione</h4>
       <div className="border border-slate-200 rounded-xl overflow-hidden">
-        {rows.map(({ label, value, breakdown }) => {
-          const isOpen = open === label;
-          const hasDetail = breakdown.length > 0;
-          return (
-            <div key={label} className="border-b border-slate-100 last:border-b-0">
-              <button
-                className="w-full flex items-center justify-between px-3 py-2.5 text-xs text-left hover:bg-slate-50 transition-colors"
-                onClick={() => hasDetail && setOpen(isOpen ? null : label)}
-              >
-                <span className="flex items-center gap-1.5 text-slate-600">
-                  {hasDetail
-                    ? (isOpen ? <ChevronDown size={12} className="text-slate-400" /> : <ChevronRight size={12} className="text-slate-400" />)
-                    : <span className="w-3" />}
-                  {label}
-                </span>
-                <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
-              </button>
-              {isOpen && (
-                <div className="bg-slate-50 border-t border-slate-100 px-3 py-2 space-y-1">
-                  {breakdown.map(({ name, contribution }) => (
-                    <div key={name} className="flex items-center justify-between text-xs py-0.5">
-                      <span className="text-slate-500 truncate max-w-[70%]" title={name}>{name}</span>
-                      <span className={`tabular-nums font-medium ${clrPp(contribution)}`}>{fmtPp(contribution)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between px-3 py-2.5 text-xs border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+            <span className="text-slate-600">{label}</span>
+            <span className={`font-semibold tabular-nums ${clrPp(value)}`}>{fmtPp(value)}</span>
+          </div>
+        ))}
         <div className={`flex items-center justify-between px-3 py-2.5 border-t-2 border-slate-300 ${md.totale >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
           <span className="text-xs font-bold text-slate-800">TOTALE MIX</span>
           <span className={`text-sm font-bold tabular-nums ${clrPp(md.totale)}`}>{fmtPp(md.totale)}</span>
@@ -283,14 +258,14 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 
 // ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
-// Pivot table: Canale → Brand → Categoria → Sottocategoria → Formato (5 levels)
-// Columns: Cos%P1 | Volume | Mix Brand | Mix Cat. | Mix Sottocat. | Mix Ref. | Price | Costo | Cos%P2
+// Pivot table: Canale → Brand → Sottocategoria → Formato → Referenza Servizio (5 levels)
+// Columns: Cos%P1 | Volume | Mix Brand | Mix Sottocat. | Mix Formato | Mix Ref. | Price | Costo | Cos%P2
 
-interface HierCanaleNode { canale: string; bridge: GroupBridgeResult; brands: HierBrandNode[]   }
-interface HierBrandNode  { brand: string;  bridge: GroupBridgeResult; categorias: HierCatNode[]  }
-interface HierCatNode    { cat: string;    bridge: GroupBridgeResult; subcats: HierSubcatNode[]  }
-interface HierSubcatNode { subcat: string; bridge: GroupBridgeResult; formati: HierLeafNode[]    }
-interface HierLeafNode   { formato: string; bridge: GroupBridgeResult }
+interface HierCanaleNode  { canale: string;   bridge: GroupBridgeResult; brands:   HierBrandNode[]   }
+interface HierBrandNode   { brand: string;    bridge: GroupBridgeResult; subcats:  HierSubcatNode[]  }
+interface HierSubcatNode  { subcat: string;   bridge: GroupBridgeResult; formati:  HierFormatoNode[] }
+interface HierFormatoNode { formato: string;  bridge: GroupBridgeResult; referenze: HierLeafNode[]   }
+interface HierLeafNode    { referenza: string; label: string; bridge: GroupBridgeResult }
 
 const fmtPctV = (v: number | null) =>
   v === null || !isFinite(v) ? 'N/D' : `${(v * 100).toFixed(2)}%`;
@@ -328,17 +303,17 @@ function HierarchicalBridgeTable({
 }) {
   const [expandedCanali,  setExpandedCanali]  = useState<Set<string>>(new Set());
   const [expandedBrands,  setExpandedBrands]  = useState<Set<string>>(new Set());
-  const [expandedCats,    setExpandedCats]    = useState<Set<string>>(new Set());
   const [expandedSubcats, setExpandedSubcats] = useState<Set<string>>(new Set());
+  const [expandedFormati, setExpandedFormati] = useState<Set<string>>(new Set());
 
   const toggleCanale = useCallback((c: string) =>
     setExpandedCanali(p  => { const s = new Set(p); s.has(c) ? s.delete(c) : s.add(c); return s; }), []);
   const toggleBrand  = useCallback((b: string) =>
     setExpandedBrands(p  => { const s = new Set(p); s.has(b) ? s.delete(b) : s.add(b); return s; }), []);
-  const toggleCat    = useCallback((k: string) =>
-    setExpandedCats(p    => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
   const toggleSubcat = useCallback((k: string) =>
     setExpandedSubcats(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
+  const toggleFormato = useCallback((k: string) =>
+    setExpandedFormati(p => { const s = new Set(p); s.has(k) ? s.delete(k) : s.add(k); return s; }), []);
 
   const nodes = useMemo<HierCanaleNode[]>(() => {
     const canaleMap = new Map<string, ComparedLine[]>();
@@ -355,34 +330,38 @@ function HierarchicalBridgeTable({
         brandMap.get(b)!.push(l);
       }
       const brands: HierBrandNode[] = [...brandMap.entries()].map(([brand, bLines]) => {
-        const catMap = new Map<string, ComparedLine[]>();
+        const scMap = new Map<string, ComparedLine[]>();
         for (const l of bLines) {
-          const c = l.categoria || 'N/D';
-          if (!catMap.has(c)) catMap.set(c, []);
-          catMap.get(c)!.push(l);
+          const s = l.sottocategoria || 'N/D';
+          if (!scMap.has(s)) scMap.set(s, []);
+          scMap.get(s)!.push(l);
         }
-        const categorias: HierCatNode[] = [...catMap.entries()].map(([cat, cLines]) => {
-          const scMap = new Map<string, ComparedLine[]>();
-          for (const l of cLines) {
-            const s = l.sottocategoria || 'N/D';
-            if (!scMap.has(s)) scMap.set(s, []);
-            scMap.get(s)!.push(l);
+        const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
+          const fmtMap = new Map<string, ComparedLine[]>();
+          for (const l of sLines) {
+            const f = l.formato || 'N/D';
+            if (!fmtMap.has(f)) fmtMap.set(f, []);
+            fmtMap.get(f)!.push(l);
           }
-          const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
-            const fmtMap = new Map<string, ComparedLine[]>();
-            for (const l of sLines) {
-              const f = l.formato || l.descrizione || l.codice || 'N/D';
-              if (!fmtMap.has(f)) fmtMap.set(f, []);
-              fmtMap.get(f)!.push(l);
+          const formati: HierFormatoNode[] = [...fmtMap.entries()].map(([formato, fLines]) => {
+            const refMap = new Map<string, ComparedLine[]>();
+            for (const l of fLines) {
+              const r = l.codice || l.descrizione || 'N/D';
+              if (!refMap.has(r)) refMap.set(r, []);
+              refMap.get(r)!.push(l);
             }
-            const formati: HierLeafNode[] = [...fmtMap.entries()].map(([formato, fLines]) => ({
-              formato, bridge: computeGroupBridge(fLines),
-            }));
-            return { subcat, bridge: computeGroupBridge(sLines), formati };
+            const referenze: HierLeafNode[] = [...refMap.entries()].map(([referenza, rLines]) => {
+              const first = rLines[0];
+              const label = first.codice
+                ? `${first.codice}${first.descrizione ? ' — ' + first.descrizione : ''}`
+                : first.descrizione || referenza;
+              return { referenza, label, bridge: computeGroupBridge(rLines) };
+            });
+            return { formato, bridge: computeGroupBridge(fLines), referenze };
           });
-          return { cat, bridge: computeGroupBridge(cLines), subcats };
+          return { subcat, bridge: computeGroupBridge(sLines), formati };
         });
-        return { brand, bridge: computeGroupBridge(bLines), categorias };
+        return { brand, bridge: computeGroupBridge(bLines), subcats };
       });
       return { canale, bridge: computeGroupBridge(cnLines), brands };
     });
@@ -393,30 +372,31 @@ function HierarchicalBridgeTable({
     if (!nodes.length) return;
     const canali = new Set<string>();
     const brands = new Set<string>();
-    const cats   = new Set<string>();
     const scats  = new Set<string>();
+    const fmts   = new Set<string>();
     for (const { canale, brands: bs } of nodes) {
       canali.add(canale);
-      for (const { brand, categorias } of bs) {
+      for (const { brand, subcats } of bs) {
         const bKey = `${canale}|${brand}`;
         brands.add(bKey);
-        for (const { cat, subcats } of categorias) {
-          cats.add(`${bKey}|${cat}`);
-          for (const { subcat } of subcats) {
-            scats.add(`${bKey}|${cat}|${subcat}`);
+        for (const { subcat, formati } of subcats) {
+          const scKey = `${bKey}|${subcat}`;
+          scats.add(scKey);
+          for (const { formato } of formati) {
+            fmts.add(`${scKey}|${formato}`);
           }
         }
       }
     }
     setExpandedCanali(canali);
     setExpandedBrands(brands);
-    setExpandedCats(cats);
     setExpandedSubcats(scats);
+    setExpandedFormati(fmts);
   }, [allLines]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const md = effects.mixDecomposition;
 
-  const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Cat.', 'Mix Sottocat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
+  const COLS = ['Etichette di riga', 'Cos% P1', 'Volume', 'Mix Brand', 'Mix Sottocat.', 'Mix Formato', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
 
   return (
     <div className="overflow-x-auto">
@@ -452,9 +432,9 @@ function HierarchicalBridgeTable({
                   </td>
                   <CosPctCell v={cnb.cosP1} />
                   <BridgeCell v={cnb.effVolume} />
-                  <BridgeCell v={cnb.effMixCategoria} />
-                  <BridgeCell v={0} alwaysZero />
                   <BridgeCell v={cnb.effMixSottocategoria} />
+                  <BridgeCell v={0} alwaysZero />
+                  <BridgeCell v={cnb.effMixFormato} />
                   <BridgeCell v={cnb.effMixReferenza} />
                   <BridgeCell v={cnb.effPrezzo} />
                   <BridgeCell v={cnb.effCosto} />
@@ -462,7 +442,7 @@ function HierarchicalBridgeTable({
                 </tr>
 
                 {/* ── Brand rows ── */}
-                {cnExp && brands.map(({ brand, bridge: bb, categorias }) => {
+                {cnExp && brands.map(({ brand, bridge: bb, subcats }) => {
                   const bKey = `${canale}|${brand}`;
                   const bExp = expandedBrands.has(bKey);
                   return (
@@ -479,80 +459,80 @@ function HierarchicalBridgeTable({
                         <CosPctCell v={bb.cosP1} />
                         <BridgeCell v={bb.effVolume} />
                         <BridgeCell v={0} alwaysZero />
-                        <BridgeCell v={bb.effMixCategoria} />
                         <BridgeCell v={bb.effMixSottocategoria} />
+                        <BridgeCell v={bb.effMixFormato} />
                         <BridgeCell v={bb.effMixReferenza} />
                         <BridgeCell v={bb.effPrezzo} />
                         <BridgeCell v={bb.effCosto} />
                         <CosPctCell v={bb.cosP2} />
                       </tr>
 
-                      {/* ── Categoria rows ── */}
-                      {bExp && categorias.map(({ cat, bridge: cb, subcats }) => {
-                        const catKey = `${bKey}|${cat}`;
-                        const cExp = expandedCats.has(catKey);
+                      {/* ── Sottocategoria rows ── */}
+                      {bExp && subcats.map(({ subcat, bridge: sb, formati }) => {
+                        const scKey = `${bKey}|${subcat}`;
+                        const sExp = expandedSubcats.has(scKey);
                         return (
-                          <Fragment key={catKey}>
+                          <Fragment key={scKey}>
                             <tr className="bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors border-b border-slate-200"
-                                onClick={() => toggleCat(catKey)}>
+                                onClick={() => toggleSubcat(scKey)}>
                               <td className="px-3 py-2 text-slate-700 font-semibold">
                                 <div className="flex items-center gap-1.5 pl-10">
-                                  {cExp ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                  {sExp ? <ChevronDown className="w-3 h-3 text-slate-400 flex-shrink-0" />
                                         : <ChevronRight className="w-3 h-3 text-slate-400 flex-shrink-0" />}
-                                  {cat}
+                                  {subcat}
                                 </div>
                               </td>
-                              <CosPctCell v={cb.cosP1} py="py-2" />
-                              <BridgeCell v={cb.effVolume} />
+                              <CosPctCell v={sb.cosP1} py="py-2" />
+                              <BridgeCell v={sb.effVolume} />
                               <BridgeCell v={0} alwaysZero />
                               <BridgeCell v={0} alwaysZero />
-                              <BridgeCell v={cb.effMixSottocategoria} />
-                              <BridgeCell v={cb.effMixReferenza} />
-                              <BridgeCell v={cb.effPrezzo} />
-                              <BridgeCell v={cb.effCosto} />
-                              <CosPctCell v={cb.cosP2} py="py-2" />
+                              <BridgeCell v={sb.effMixFormato} />
+                              <BridgeCell v={sb.effMixReferenza} />
+                              <BridgeCell v={sb.effPrezzo} />
+                              <BridgeCell v={sb.effCosto} />
+                              <CosPctCell v={sb.cosP2} py="py-2" />
                             </tr>
 
-                            {/* ── Sottocategoria rows ── */}
-                            {cExp && subcats.map(({ subcat, bridge: sb, formati }) => {
-                              const scKey = `${catKey}|${subcat}`;
-                              const sExp = expandedSubcats.has(scKey);
+                            {/* ── Formato rows ── */}
+                            {sExp && formati.map(({ formato, bridge: fb, referenze }) => {
+                              const fmtKey = `${scKey}|${formato}`;
+                              const fExp = expandedFormati.has(fmtKey);
                               return (
-                                <Fragment key={scKey}>
+                                <Fragment key={fmtKey}>
                                   <tr className="bg-white hover:bg-slate-50 cursor-pointer transition-colors border-b border-slate-100"
-                                      onClick={() => toggleSubcat(scKey)}>
+                                      onClick={() => toggleFormato(fmtKey)}>
                                     <td className="px-3 py-1.5 text-slate-600">
                                       <div className="flex items-center gap-1.5 pl-16">
-                                        {sExp ? <ChevronDown className="w-3 h-3 text-slate-300 flex-shrink-0" />
+                                        {fExp ? <ChevronDown className="w-3 h-3 text-slate-300 flex-shrink-0" />
                                               : <ChevronRight className="w-3 h-3 text-slate-300 flex-shrink-0" />}
-                                        {subcat}
+                                        {formato}
                                       </div>
                                     </td>
-                                    <CosPctCell v={sb.cosP1} py="py-1.5" />
-                                    <BridgeCell v={sb.effVolume} />
+                                    <CosPctCell v={fb.cosP1} py="py-1.5" />
+                                    <BridgeCell v={fb.effVolume} />
                                     <BridgeCell v={0} alwaysZero />
                                     <BridgeCell v={0} alwaysZero />
                                     <BridgeCell v={0} alwaysZero />
-                                    <BridgeCell v={sb.effMixReferenza} />
-                                    <BridgeCell v={sb.effPrezzo} />
-                                    <BridgeCell v={sb.effCosto} />
-                                    <CosPctCell v={sb.cosP2} py="py-1.5" />
+                                    <BridgeCell v={fb.effMixReferenza} />
+                                    <BridgeCell v={fb.effPrezzo} />
+                                    <BridgeCell v={fb.effCosto} />
+                                    <CosPctCell v={fb.cosP2} py="py-1.5" />
                                   </tr>
 
-                                  {/* ── Formato (leaf) rows ── */}
-                                  {sExp && formati.map(({ formato, bridge: fb }) => (
-                                    <tr key={`${scKey}|${formato}`}
+                                  {/* ── Referenza Servizio (leaf) rows ── */}
+                                  {fExp && referenze.map(({ referenza, label, bridge: rb }) => (
+                                    <tr key={`${fmtKey}|${referenza}`}
                                         className="bg-slate-50/50 border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                                      <td className="px-3 py-1 text-slate-400 text-[10px] pl-20">{formato}</td>
-                                      <CosPctCell v={fb.cosP1} py="py-1" size="text-[10px]" />
-                                      <BridgeCell v={fb.effVolume} />
+                                      <td className="px-3 py-1 text-slate-400 text-[10px] pl-20 truncate max-w-[240px]" title={label}>{label}</td>
+                                      <CosPctCell v={rb.cosP1} py="py-1" size="text-[10px]" />
+                                      <BridgeCell v={rb.effVolume} />
                                       <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
                                       <BridgeCell v={0} alwaysZero />
-                                      <BridgeCell v={fb.effPrezzo} />
-                                      <BridgeCell v={fb.effCosto} />
-                                      <CosPctCell v={fb.cosP2} py="py-1" size="text-[10px]" />
+                                      <BridgeCell v={rb.effPrezzo} />
+                                      <BridgeCell v={rb.effCosto} />
+                                      <CosPctCell v={rb.cosP2} py="py-1" size="text-[10px]" />
                                     </tr>
                                   ))}
                                 </Fragment>
@@ -574,9 +554,9 @@ function HierarchicalBridgeTable({
             <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
-            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria)}`}>{fmtEff(md.categoria)}</td>
-            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.sottocategoria)}`}>{fmtEff(md.sottocategoria)}</td>
-            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato + md.residuo)}`}>{fmtEff(md.formato + md.residuo)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria + md.sottocategoria)}`}>{fmtEff(md.categoria + md.sottocategoria)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato)}`}>{fmtEff(md.formato)}</td>
+            <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.residuo)}`}>{fmtEff(md.residuo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
             <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP2)}</td>
@@ -848,9 +828,18 @@ export default function VarianceAnalysis() {
                   Colonne: Codice Materiale, Descrizione, Anno, Mese, Quantità, Fatturato, Costo Unitario
                 </p>
                 <p className="text-sm text-slate-500 mt-1.5">
-                  + colonne opzionali (rilevate da intestazione): <strong className="text-slate-700">Brand</strong>, <strong className="text-slate-700">Categoria</strong>, Sottocategoria, Formato, Paese/Canale
+                  + colonne opzionali: <strong className="text-slate-700">Brand</strong>, <strong className="text-slate-700">Canale</strong>, Sottocategoria, Formato, Referenza Servizio
                 </p>
                 <p className="text-sm text-slate-400 mt-4">Trascina qui o clicca per selezionare (.xlsx, .xls)</p>
+                <a
+                  href="/template-variance-analysis.xlsx"
+                  download
+                  onClick={e => e.stopPropagation()}
+                  className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Scarica Template
+                </a>
               </>
             )}
             <input

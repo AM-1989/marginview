@@ -1178,9 +1178,9 @@ export interface GroupBridgeResult {
   cosP1:                number | null;
   cosP2:                number | null;
   effVolume:            number;
-  effMixCategoria:      number;
-  effMixSottocategoria: number;
-  effMixReferenza:      number;
+  effMixSottocategoria: number;  // Level 1: sottocategoria mix within group
+  effMixFormato:        number;  // Level 2: formato mix within sottocategoria
+  effMixReferenza:      number;  // Level 3: residual (referenza/product mix)
   effPrezzo:            number;
   effCosto:             number;
   presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
@@ -1189,7 +1189,7 @@ export interface GroupBridgeResult {
 export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   if (!lines.length) {
     return { cosP1: null, cosP2: null, effVolume: 0,
-             effMixCategoria: 0, effMixSottocategoria: 0, effMixReferenza: 0,
+             effMixSottocategoria: 0, effMixFormato: 0, effMixReferenza: 0,
              effPrezzo: 0, effCosto: 0, presence: 'both' };
   }
   const kpis = calculateBaseKpis(lines);
@@ -1207,7 +1207,7 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
     const cosP2 = kpis.totalRev2 > 0 ? kpis.marginPctP2 : kpis.marginPctP1;
     return {
       cosP1, cosP2,
-      effVolume: 0, effMixCategoria: 0, effMixSottocategoria: 0,
+      effVolume: 0, effMixSottocategoria: 0, effMixFormato: 0,
       effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
       presence,
     };
@@ -1220,55 +1220,55 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   // Each scenario redistributes P2 quantities in P1 proportions at a given hierarchy level.
   // onlyP2 products (q1=0) naturally receive qS=0 when Q1g>0 (absorbed by "both" peers).
 
-  // Level 1 — Categoria scenario
-  const catQ1 = new Map<string, number>();
-  const catQ2 = new Map<string, number>();
-  for (const l of lines) {
-    const k = l.categoria || 'N/D';
-    catQ1.set(k, (catQ1.get(k) ?? 0) + l.q1);
-    catQ2.set(k, (catQ2.get(k) ?? 0) + l.q2);
-  }
-  let revCat = 0, costCat = 0;
-  for (const l of lines) {
-    const k   = l.categoria || 'N/D';
-    const Q1g = catQ1.get(k) ?? 0;
-    const Q2g = catQ2.get(k) ?? 0;
-    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
-    revCat  += qS * l.price1Effective;
-    costCat += qS * l.unitCost1Effective;
-  }
-  const marginPctCat    = revCat > 0 ? (revCat - costCat) / revCat : marginPctV;
-  const effMixCategoria = marginPctCat - marginPctV;
-
-  // Level 2 — Sottocategoria scenario (within each categoria, redistribute by subcat)
+  // Level 1 — Sottocategoria scenario
   const scQ1 = new Map<string, number>();
   const scQ2 = new Map<string, number>();
   for (const l of lines) {
-    const k = `${l.categoria || 'N/D'}§${l.sottocategoria || 'N/D'}`;
+    const k = l.sottocategoria || 'N/D';
     scQ1.set(k, (scQ1.get(k) ?? 0) + l.q1);
     scQ2.set(k, (scQ2.get(k) ?? 0) + l.q2);
   }
   let revSc = 0, costSc = 0;
   for (const l of lines) {
-    const k   = `${l.categoria || 'N/D'}§${l.sottocategoria || 'N/D'}`;
+    const k   = l.sottocategoria || 'N/D';
     const Q1g = scQ1.get(k) ?? 0;
     const Q2g = scQ2.get(k) ?? 0;
     const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
     revSc  += qS * l.price1Effective;
     costSc += qS * l.unitCost1Effective;
   }
-  const marginPctSc          = revSc > 0 ? (revSc - costSc) / revSc : marginPctCat;
-  const effMixSottocategoria = marginPctSc - marginPctCat;
+  const marginPctSc          = revSc > 0 ? (revSc - costSc) / revSc : marginPctV;
+  const effMixSottocategoria = marginPctSc - marginPctV;
 
-  // Level 3 — Referenza residual (remaining mix after categoria + sottocategoria)
-  const effMixReferenza = eff.effMix - effMixCategoria - effMixSottocategoria;
+  // Level 2 — Formato scenario (within each sottocategoria, redistribute by formato)
+  const fmtQ1 = new Map<string, number>();
+  const fmtQ2 = new Map<string, number>();
+  for (const l of lines) {
+    const k = `${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`;
+    fmtQ1.set(k, (fmtQ1.get(k) ?? 0) + l.q1);
+    fmtQ2.set(k, (fmtQ2.get(k) ?? 0) + l.q2);
+  }
+  let revFmt = 0, costFmt = 0;
+  for (const l of lines) {
+    const k   = `${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`;
+    const Q1g = fmtQ1.get(k) ?? 0;
+    const Q2g = fmtQ2.get(k) ?? 0;
+    const qS  = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+    revFmt  += qS * l.price1Effective;
+    costFmt += qS * l.unitCost1Effective;
+  }
+  const marginPctFmt = revFmt > 0 ? (revFmt - costFmt) / revFmt : marginPctSc;
+  const effMixFormato = marginPctFmt - marginPctSc;
+
+  // Level 3 — Referenza residual (remaining mix after sottocategoria + formato)
+  const effMixReferenza = eff.effMix - effMixSottocategoria - effMixFormato;
 
   return {
     cosP1:                kpis.marginPctP1,
     cosP2:                kpis.marginPctP2,
     effVolume:            eff.effVolume,
-    effMixCategoria,
     effMixSottocategoria,
+    effMixFormato,
     effMixReferenza,
     effPrezzo:            eff.effPrezzo,
     effCosto:             eff.effCosto,
