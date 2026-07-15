@@ -601,7 +601,10 @@ function FilterDropdown({
       if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) return;
       setOpen(false);
     };
-    const onScroll = () => setOpen(false);
+    const onScroll = (e: Event) => {
+      if (dropdownRef.current && dropdownRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
     document.addEventListener('mousedown', close);
     window.addEventListener('scroll', onScroll, true);
     return () => {
