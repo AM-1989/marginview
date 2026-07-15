@@ -363,7 +363,7 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
   const rows: VarRow[] = [];
   let skipped = 0;
 
-  raw.forEach((r, i) => {
+  raw.forEach((r) => {
     const quantita  = parseNum(get(r, 'quantita'));
     const fatturato = parseNum(get(r, 'fatturato'));
 
@@ -381,7 +381,7 @@ export function normalizeRows(raw: Record<string, unknown>[]): VarRow[] {
     if (fatturato === 0 && quantita === 0) { skipped++; return; }
 
     rows.push({
-      codiceMateriale: String(get(r, 'codiceMateriale') ?? `R${i + 1}`).trim(),
+      codiceMateriale: String(get(r, 'codiceMateriale') ?? '').trim(),
       descrizione:     String(get(r, 'descrizione')     ?? '').trim(),
       brand:           String(get(r, 'brand')           ?? '').trim(),
       categoria:       String(get(r, 'categoria')       ?? '').trim(),
@@ -1336,7 +1336,9 @@ export function computeVarianceEffects(
   dbg('P2 raw rows:', rowsP2.length);
 
   // ── Reference key function — built from combined dataset ─────────────────
-  const getKey = buildReferenceKeyFn([...rowsP1, ...rowsP2]);
+  // canale is prepended so the same SKU in different channels stays separate
+  const baseGetKey = buildReferenceKeyFn([...rowsP1, ...rowsP2]);
+  const getKey = (r: VarRow) => `${r.canale || '_nocanale_'}§${baseGetKey(r)}`;
 
   // ── Step 5: aggregate by referenceKey ───────────────────────────────────
   const agg1 = aggregatePeriod(rowsP1, getKey);

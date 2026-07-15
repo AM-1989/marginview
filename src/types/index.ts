@@ -14,7 +14,6 @@ export interface RowExcel {
   Categoria?: string;
   Sottocategoria?: string;
   Formato?: string;
-  Paese?: string;
   Canale?: string;
 
   // Financials
