@@ -550,6 +550,7 @@ export function calculate(
   thresholdA: number,  // relative % above avg → class A  (10 = ×1.10)
   thresholdC: number,  // relative % below avg → class C  (10 = ×0.90)
   customMarginRef: number | null,
+  catMarginOverrides?: Record<string, { a: number; c: number }>, // per-category absolute thresholds
 ): AbcMetrics {
   const empty = (): AbcMetrics => ({
     products: [], totalRevenue: 0, totalCost: 0, totalProfit: 0,
@@ -616,9 +617,12 @@ export function calculate(
   const sogliaC = weightedMargin * (1 - thresholdC / 100);
 
   const products: ClassifiedRow[] = withRev.map(r => {
+    const ovr = catMarginOverrides?.[r.category ?? '(N/D)'];
+    const sA = ovr ? ovr.a : sogliaA;
+    const sC = ovr ? ovr.c : sogliaC;
     const rM: AbcRating =
-      r.marginPct >= sogliaA ? 'A' :
-      r.marginPct >= sogliaC ? 'B' : 'C';
+      r.marginPct >= sA ? 'A' :
+      r.marginPct >= sC ? 'B' : 'C';
     return {
       ...r,
       ratingMargin: rM,

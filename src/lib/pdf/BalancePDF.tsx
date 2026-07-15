@@ -331,7 +331,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
                 )}
                 {consultantNote && (
                   <View style={[S.noteBlock, { flex: 1 }]}>
-                    <Text style={S.noteTitle}>Note del Consulente</Text>
+                    <Text style={S.noteTitle}>Note</Text>
                     <Text style={S.noteText}>{consultantNote}</Text>
                   </View>
                 )}

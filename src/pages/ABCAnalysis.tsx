@@ -529,84 +529,80 @@ export default function ABCAnalysis() {
         </div>
       </div>
 
-      {/* ── Comments ──────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-8">
-
-        {/* AI comment */}
-        <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
-              <MessageSquareText className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-white">Commento AI — Analisi ABC</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
-            </div>
+      {/* ── AI Comment ────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+            <MessageSquareText className="w-4 h-4 text-violet-600" />
           </div>
-
-          <div className="flex-1 min-h-[100px]">
-            {aiLoading && (
-              <div className="space-y-2.5 animate-pulse">
-                {[100, 90, 96, 80, 88].map((w, i) => (
-                  <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
-                ))}
-              </div>
-            )}
-            {aiError && !aiLoading && (
-              <div className="flex items-center gap-2 text-amber-400 text-sm">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{aiError}</span>
-              </div>
-            )}
-            {aiComment && !aiLoading && (
-              <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
-                {aiComment}
-              </p>
-            )}
-          </div>
-
-          <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
-            {([
-              { label: 'Classe A %', v: fmtPct(details.filter(d => d.RatingFinale === 'A').reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
-              { label: 'Margine medio', v: fmtPct(summary.MarginePercGlobale) },
-              { label: 'Top-3 share', v: fmtPct(details.slice(0, 3).reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
-            ]).map(({ label, v }) => (
-              <div key={label} className="text-center">
-                <p className="text-[10px] text-slate-500 mb-1">{label}</p>
-                <p className="text-sm font-bold tabular-nums text-slate-200">{v}</p>
-              </div>
-            ))}
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Commento AI — Analisi ABC</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
           </div>
         </div>
 
-        {/* Consultant note */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-              <PenLine className="w-4 h-4 text-slate-500" />
+        <div className="flex-1 min-h-[100px]">
+          {aiLoading && (
+            <div className="space-y-2.5 animate-pulse">
+              {[100, 90, 96, 80, 88].map((w, i) => (
+                <div key={i} className="h-2.5 bg-slate-200 rounded" style={{ width: `${w}%` }} />
+              ))}
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'analisi corrente</p>
+          )}
+          {aiError && !aiLoading && (
+            <div className="flex items-center gap-2 text-amber-500 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{aiError}</span>
             </div>
-          </div>
+          )}
+          {aiComment && !aiLoading && (
+            <p className="text-sm text-slate-700 leading-relaxed font-light whitespace-pre-line">
+              {aiComment}
+            </p>
+          )}
+        </div>
 
-          <textarea
-            value={userNote}
-            onChange={e => {
-              setUserNote(e.target.value);
-              localStorage.setItem(noteKey, e.target.value);
-            }}
-            placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
-            className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
-          />
+        <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
+          {([
+            { label: 'Classe A %', v: fmtPct(details.filter(d => d.RatingFinale === 'A').reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
+            { label: 'Margine medio', v: fmtPct(summary.MarginePercGlobale) },
+            { label: 'Top-3 share', v: fmtPct(details.slice(0, 3).reduce((s, d) => s + d.Fatturato, 0) / (summary.TotaleFatturato || 1) * 100) },
+          ]).map(({ label, v }) => (
+            <div key={label} className="text-center">
+              <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+              <p className="text-sm font-bold tabular-nums text-slate-700">{v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          <div className="flex items-center justify-between mt-3">
-            <p className="text-[10px] text-slate-400">Salvato automaticamente per questa tolleranza</p>
-            {userNote && (
-              <p className="text-[11px] text-slate-400 tabular-nums">{userNote.length} car.</p>
-            )}
+      {/* ── Note ──────────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col pb-8">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+            <PenLine className="w-4 h-4 text-slate-500" />
           </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">Note</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'analisi corrente</p>
+          </div>
+        </div>
+
+        <textarea
+          value={userNote}
+          onChange={e => {
+            setUserNote(e.target.value);
+            localStorage.setItem(noteKey, e.target.value);
+          }}
+          placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
+          className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
+        />
+
+        <div className="flex items-center justify-between mt-3">
+          <p className="text-[10px] text-slate-400">Salvato automaticamente per questa tolleranza</p>
+          {userNote && (
+            <p className="text-[11px] text-slate-400 tabular-nums">{userNote.length} car.</p>
+          )}
         </div>
       </div>
     </div>

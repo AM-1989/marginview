@@ -661,10 +661,12 @@ app.get('/api/deploy/log', (req, res) => {
 
 const SYSTEM_PROMPT_BASE =
   'Sei un controller di gestione senior. Scrivi in italiano, in prosa, ' +
-  'senza elenchi puntati. Struttura la risposta in esattamente 3 paragrafi ' +
-  'brevi separati da una riga vuota: (1) risultato principale con i numeri ' +
-  'chiave, (2) driver dominante che lo spiega, (3) una raccomandazione ' +
-  'operativa concreta. Massimo 90 parole in totale. Tono professionale.';
+  'senza elenchi puntati. Struttura la risposta in esattamente 4 paragrafi ' +
+  'separati da una riga vuota: (1) risultato principale con i numeri chiave, ' +
+  '(2) driver dominante che lo spiega con dettaglio quantitativo, ' +
+  '(3) implicazioni strategiche e rischi da monitorare, ' +
+  '(4) due raccomandazioni operative concrete e prioritizzate. ' +
+  'Tra 180 e 220 parole in totale. Tono professionale e diretto.';
 
 const SYSTEM_PROMPTS = {
   varianza: SYSTEM_PROMPT_BASE,
@@ -732,7 +734,7 @@ app.post('/api/ai-comment', requireAuth, async (req, res) => {
 
     const msg = await client.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 220,
+      max_tokens: 500,
       system:     systemPrompt,
       messages:   [{ role: 'user', content: userPrompt }],
     });

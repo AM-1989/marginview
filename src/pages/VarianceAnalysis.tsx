@@ -32,7 +32,6 @@ const fmtPct = (v: number, dec = 2) => isFinite(v) ? `${v.toFixed(dec)}%` : 'N/D
 const fmtPp  = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : 'N/D';
 const fmtDiff = (v: number) => `${v >= 0 ? '+' : ''}${fmtEur.format(v)}`;
 const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : 'text-slate-500';
-const nd     = (v: number | null, fmt: (n: number) => string) => v !== null && isFinite(v) ? fmt(v) : 'N/D';
 
 // ─── Mix effect breakdown by dimension ───────────────────────────────────────
 // Each dimension (Brand, Categoria, etc.) is an INDEPENDENT decomposition of
@@ -260,37 +259,6 @@ function KpiCard({ label, v1, v2, fmt, subtitle }: {
   );
 }
 
-// ─── Driver Card ──────────────────────────────────────────────────────────────
-
-function DriverCard({ line, rank }: { line: ComparedLine; rank: number }) {
-  const delta = line.deltaMarginPct ?? 0;
-  const relVar = line.marginPct1 !== null && line.marginPct1 !== 0
-    ? delta / Math.abs(line.marginPct1) * 100
-    : null;
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-start justify-between mb-2">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">#{rank}</span>
-        <span className={`text-sm font-bold tabular-nums ${clrPp(delta)}`}>{fmtPp(delta)}</span>
-      </div>
-      <p className="text-sm font-semibold text-slate-800 mb-2 truncate" title={line.descrizione || line.key}>
-        {line.descrizione || line.key}
-      </p>
-      <div className="space-y-1 text-[10px] text-slate-500">
-        {line.brand        && <p><span className="font-medium">Brand:</span> {line.brand}</p>}
-        {line.categoria    && <p><span className="font-medium">Categoria:</span> {line.categoria}</p>}
-        {line.sottocategoria && <p><span className="font-medium">Sub:</span> {line.sottocategoria}</p>}
-        {line.formato      && <p><span className="font-medium">Formato:</span> {line.formato}</p>}
-        <div className="flex gap-3 pt-1">
-          <p><span className="font-medium">M% P1:</span> {nd(line.marginPct1, v => fmtPct(v * 100))}</p>
-          <p><span className="font-medium">M% P2:</span> {nd(line.marginPct2, v => fmtPct(v * 100))}</p>
-          {relVar !== null && <p><span className="font-medium">Var:</span> {relVar.toFixed(1)}%</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Category driver card ─────────────────────────────────────────────────────
 
 function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
@@ -346,7 +314,7 @@ function BridgeCell({ v, alwaysZero = false }: { v: number; alwaysZero?: boolean
 
 function CosPctCell({ v, py = 'py-2.5', size = '' }: { v: number | null; py?: string; size?: string }) {
   return (
-    <td className={`px-3 ${py} tabular-nums text-right bg-yellow-200 text-slate-900 font-bold ${size}`}>
+    <td className={`px-3 ${py} tabular-nums text-right bg-sky-100 text-slate-900 font-bold ${size}`}>
       {fmtPctV(v)}
     </td>
   );
@@ -459,7 +427,7 @@ function HierarchicalBridgeTable({
               const isHighlight = h === 'Cos% P1' || h === 'Cos% P2';
               return (
                 <th key={h} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap text-right first:text-left ${
-                  isHighlight ? 'bg-yellow-300 text-slate-800' : 'bg-slate-50 text-slate-500'
+                  isHighlight ? 'bg-sky-200 text-slate-800' : 'bg-slate-50 text-slate-500'
                 }`}>
                   {h}
                 </th>
@@ -603,7 +571,7 @@ function HierarchicalBridgeTable({
           {/* ── Totale complessivo ── */}
           <tr className="bg-blue-50 border-t-2 border-blue-200">
             <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
-            <td className="px-3 py-3 tabular-nums text-right bg-yellow-300 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.categoria)}`}>{fmtEff(md.categoria)}</td>
@@ -611,7 +579,7 @@ function HierarchicalBridgeTable({
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato + md.residuo)}`}>{fmtEff(md.formato + md.residuo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
-            <td className="px-3 py-3 tabular-nums text-right bg-yellow-300 text-slate-900 font-bold">{fmtPctV(effects.marginPctP2)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP2)}</td>
           </tr>
         </tbody>
       </table>
@@ -1119,98 +1087,11 @@ export default function VarianceAnalysis() {
             {/* ── Mix Effect Breakdown ──────────────────────────────────────── */}
             <MixEffectBreakdown effects={effects} />
 
-            {/* ── Commento AI + Note Consulente ─────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-              {/* AI Comment card */}
-              <div className="bg-slate-900 rounded-2xl p-6 shadow-sm flex flex-col">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center flex-shrink-0">
-                    <MessageSquareText className="w-4 h-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Commento AI — Varianza Marginalità</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
-                  </div>
-                </div>
-
-                <div className="flex-1 min-h-[100px]">
-                  {aiLoading && (
-                    <div className="space-y-2.5 animate-pulse">
-                      {[100, 90, 96, 80, 88].map((w, i) => (
-                        <div key={i} className="h-2.5 bg-slate-700 rounded" style={{ width: `${w}%` }} />
-                      ))}
-                    </div>
-                  )}
-                  {aiError && !aiLoading && (
-                    <div className="flex items-center gap-2 text-amber-400 text-sm">
-                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                      <span>{aiError}</span>
-                    </div>
-                  )}
-                  {aiComment && !aiLoading && (
-                    <p className="text-sm text-slate-300 leading-relaxed font-light whitespace-pre-line">
-                      {aiComment}
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-800 grid grid-cols-3 gap-3">
-                  {([
-                    { label: 'Var. Totale', v: effects.marginPctP2 - effects.marginPctP1 },
-                    { label: 'Eff. Volume', v: effects.effVolume },
-                    { label: 'Eff. Mix',    v: effects.effMix },
-                  ] as { label: string; v: number }[]).map(({ label, v }) => (
-                    <div key={label} className="text-center">
-                      <p className="text-[10px] text-slate-500 mb-1">{label}</p>
-                      <p className={`text-sm font-bold tabular-nums ${clrPp(v)}`}>{fmtPp(v)}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Consultant note card */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <PenLine className="w-4 h-4 text-slate-500" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">Commento del Consulente</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per il periodo selezionato</p>
-                  </div>
-                </div>
-                <textarea
-                  value={consultantNote}
-                  onChange={e => {
-                    setConsultantNote(e.target.value);
-                    localStorage.setItem(noteKey, e.target.value);
-                  }}
-                  placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
-                  className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
-                />
-                <div className="flex items-center justify-between mt-3">
-                  <p className="text-[10px] text-slate-400">Salvato automaticamente per questo periodo</p>
-                  {consultantNote && (
-                    <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
             {/* ── Waterfall Charts ───────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <WaterfallChart
                 data={effects.waterfallRev}
                 title="Waterfall — Fatturato"
-                subtitle="Contributo per categoria"
-                yFmt={v => `€${((v as number) / 1000).toFixed(0)}k`}
-                tooltip={WfTooltipEur}
-                barLabelAsPct
-              />
-              <WaterfallChart
-                data={effects.waterfallMargin}
-                title="Waterfall — Margine €"
                 subtitle="Contributo per categoria"
                 yFmt={v => `€${((v as number) / 1000).toFixed(0)}k`}
                 tooltip={WfTooltipEur}
@@ -1223,6 +1104,53 @@ export default function VarianceAnalysis() {
                 yFmt={v => `${(v as number).toFixed(1)}%`}
                 tooltip={WfTooltip}
               />
+            </div>
+
+            {/* ── Commento AI ───────────────────────────────────────────────── */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                  <MessageSquareText className="w-4 h-4 text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Commento AI — Varianza Marginalità</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-[100px]">
+                {aiLoading && (
+                  <div className="space-y-2.5 animate-pulse">
+                    {[100, 90, 96, 80, 88].map((w, i) => (
+                      <div key={i} className="h-2.5 bg-slate-200 rounded" style={{ width: `${w}%` }} />
+                    ))}
+                  </div>
+                )}
+                {aiError && !aiLoading && (
+                  <div className="flex items-center gap-2 text-amber-500 text-sm">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                    <span>{aiError}</span>
+                  </div>
+                )}
+                {aiComment && !aiLoading && (
+                  <p className="text-sm text-slate-700 leading-relaxed font-light whitespace-pre-line">
+                    {aiComment}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
+                {([
+                  { label: 'Var. Totale', v: effects.marginPctP2 - effects.marginPctP1 },
+                  { label: 'Eff. Volume', v: effects.effVolume },
+                  { label: 'Eff. Mix',    v: effects.effMix },
+                ] as { label: string; v: number }[]).map(({ label, v }) => (
+                  <div key={label} className="text-center">
+                    <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+                    <p className={`text-sm font-bold tabular-nums ${clrPp(v)}`}>{fmtPp(v)}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* ── Analisi degli Effetti ──────────────────────────────────────── */}
@@ -1276,31 +1204,6 @@ export default function VarianceAnalysis() {
               </div>
             </div>
 
-            {/* ── Top Drivers per Prodotto ───────────────────────────────────── */}
-            <div>
-              <div className="mb-5">
-                <h3 className="text-base font-bold text-slate-900">Top Drivers per Prodotto</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Ranking delle referenze per impatto sulla varianza margine %</p>
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                {[
-                  { title: 'Top 3 Variazioni', items: effects.topVariations, color: 'bg-blue-50 border-blue-200' },
-                  { title: 'Top 3 Best Performers', items: effects.topBest, color: 'bg-emerald-50 border-emerald-200' },
-                  { title: 'Top 3 Worst Performers', items: effects.topWorst, color: 'bg-red-50 border-red-200' },
-                ].map(({ title, items, color }) => (
-                  <div key={title} className={`rounded-2xl border p-5 ${color}`}>
-                    <h4 className="text-sm font-semibold text-slate-700 mb-4">{title}</h4>
-                    {items.length === 0
-                      ? <p className="text-xs text-slate-400 text-center py-4">Nessun dato disponibile</p>
-                      : <div className="space-y-3">
-                          {items.map((l, i) => <DriverCard key={l.key} line={l} rank={i + 1} />)}
-                        </div>
-                    }
-                  </div>
-                ))}
-              </div>
-            </div>
-
             {/* ── Top Drivers per Categoria ──────────────────────────────────── */}
             {catDrivers && catDrivers.length > 0 && (
               <div>
@@ -1339,6 +1242,34 @@ export default function VarianceAnalysis() {
                 </div>
               </div>
             )}
+
+            {/* ── Note ──────────────────────────────────────────────────────────── */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col pb-8">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  <PenLine className="w-4 h-4 text-slate-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Note</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per il periodo selezionato</p>
+                </div>
+              </div>
+              <textarea
+                value={consultantNote}
+                onChange={e => {
+                  setConsultantNote(e.target.value);
+                  localStorage.setItem(noteKey, e.target.value);
+                }}
+                placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
+                className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
+              />
+              <div className="flex items-center justify-between mt-3">
+                <p className="text-[10px] text-slate-400">Salvato automaticamente per questo periodo</p>
+                {consultantNote && (
+                  <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
+                )}
+              </div>
+            </div>
           </>
         )}
 
@@ -1347,7 +1278,8 @@ export default function VarianceAnalysis() {
       {/* ── Pagina dedicata: Variazione Margine % per Gruppo ─────────────────── */}
       {canShowResults && effects && (
         <div className="mt-2 border-t-4 border-slate-200 bg-white">
-          <div className="max-w-7xl mx-auto">
+          <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
           <div className="px-6 py-5 bg-slate-900 flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-white">Variazione Margine % per Gruppo</h2>
@@ -1358,11 +1290,11 @@ export default function VarianceAnalysis() {
             <div className="flex items-center gap-6 text-right">
               <div>
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P1</p>
-                <p className="text-sm font-bold text-yellow-300">{(effects.marginPctP1 * 100).toFixed(2)}%</p>
+                <p className="text-sm font-bold text-sky-300">{(effects.marginPctP1 * 100).toFixed(2)}%</p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P2</p>
-                <p className="text-sm font-bold text-yellow-300">{(effects.marginPctP2 * 100).toFixed(2)}%</p>
+                <p className="text-sm font-bold text-sky-300">{(effects.marginPctP2 * 100).toFixed(2)}%</p>
               </div>
               <div>
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest">Δ Totale</p>
@@ -1373,6 +1305,7 @@ export default function VarianceAnalysis() {
             </div>
           </div>
           <HierarchicalBridgeTable effects={effects} allLines={effects.lines} />
+          </div>
           </div>
         </div>
       )}
