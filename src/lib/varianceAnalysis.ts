@@ -1190,19 +1190,21 @@ function computeMixDecomposition(
 
 // ─── computeGroupBridge ──────────────────────────────────────────────────────
 // Computes the sequential bridge for an arbitrary subset of ComparedLine[].
-// Mix is split into two levels:
-//   effMixCategoria – within-group categoria shift (Scenario Cat − Scenario V)
-//   effMixReferenza – remaining mix after categoria shift (effMix − effMixCategoria)
-// Consistent with the global bridge: onlyP2 excluded from Scenario M.
+// Mix is split into three sequential levels (Brand → Categoria → Sottocategoria)
+// plus a residual that captures formato and referenza effects:
+//   effMixBrand          – brand mix shift
+//   effMixCategoria      – categoria shift within brand
+//   effMixSottocategoria – subcat shift within brand+categoria
+//   effMixReferenza      – residual (formato + referenza effects)
 
 export interface GroupBridgeResult {
   cosP1:                number | null;
   cosP2:                number | null;
   effVolume:            number;
   effMixBrand:          number;  // Level 1: brand mix within group (≈0 for single-brand subsets)
-  effMixSottocategoria: number;  // Level 2: subcat mix within brand
-  effMixFormato:        number;  // Level 3: formato mix within brand+subcat
-  effMixReferenza:      number;  // Level 4: residual (referenza/product mix)
+  effMixCategoria:      number;  // Level 2: categoria mix within brand
+  effMixSottocategoria: number;  // Level 3: subcat mix within brand+categoria
+  effMixReferenza:      number;  // Residual: everything below subcat (includes formato)
   effPrezzo:            number;
   effCosto:             number;
   presence: 'both' | 'onlyP1' | 'onlyP2' | 'mixed';
@@ -1211,7 +1213,7 @@ export interface GroupBridgeResult {
 export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   if (!lines.length) {
     return { cosP1: null, cosP2: null, effVolume: 0,
-             effMixBrand: 0, effMixSottocategoria: 0, effMixFormato: 0, effMixReferenza: 0,
+             effMixBrand: 0, effMixCategoria: 0, effMixSottocategoria: 0, effMixReferenza: 0,
              effPrezzo: 0, effCosto: 0, presence: 'both' };
   }
   const kpis = calculateBaseKpis(lines);
@@ -1229,7 +1231,7 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
     const cosP2 = kpis.totalRev2 > 0 ? kpis.marginPctP2 : kpis.marginPctP1;
     return {
       cosP1, cosP2,
-      effVolume: 0, effMixBrand: 0, effMixSottocategoria: 0, effMixFormato: 0,
+      effVolume: 0, effMixBrand: 0, effMixCategoria: 0, effMixSottocategoria: 0,
       effMixReferenza: 0, effPrezzo: 0, effCosto: 0,
       presence,
     };
@@ -1239,7 +1241,7 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   const { marginPctV } = eff;
 
   // Sequential mix scenarios within the group (canale is already fixed by the subset).
-  // Level 1: Brand, Level 2: Subcat within Brand, Level 3: Formato within Brand+Subcat.
+  // Level 1: Brand, Level 2: Categoria within Brand, Level 3: Sottocategoria within Brand+Categoria.
   // Same formula as computeMixDecomposition: qS = Q2g × (q1_i / Q1g), fallback l.q2 when Q1g=0.
 
   function groupScenario(keyFn: (l: ComparedLine) => string): number {
@@ -1263,21 +1265,21 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
   }
 
   const mpctBrand = groupScenario(l => l.brand || 'N/D');
-  const mpctSc    = groupScenario(l => `${l.brand || 'N/D'}§${l.sottocategoria || 'N/D'}`);
-  const mpctFmt   = groupScenario(l => `${l.brand || 'N/D'}§${l.sottocategoria || 'N/D'}§${l.formato || 'N/D'}`);
+  const mpctCat   = groupScenario(l => `${l.brand || 'N/D'}§${l.categoria || 'N/D'}`);
+  const mpctSc    = groupScenario(l => `${l.brand || 'N/D'}§${l.categoria || 'N/D'}§${l.sottocategoria || 'N/D'}`);
 
   const effMixBrand          = mpctBrand - marginPctV;
-  const effMixSottocategoria = mpctSc    - mpctBrand;
-  const effMixFormato        = mpctFmt   - mpctSc;
-  const effMixReferenza      = eff.effMix - effMixBrand - effMixSottocategoria - effMixFormato;
+  const effMixCategoria      = mpctCat   - mpctBrand;
+  const effMixSottocategoria = mpctSc    - mpctCat;
+  const effMixReferenza      = eff.effMix - effMixBrand - effMixCategoria - effMixSottocategoria;
 
   return {
     cosP1:  kpis.marginPctP1,
     cosP2:  kpis.marginPctP2,
     effVolume: eff.effVolume,
     effMixBrand,
+    effMixCategoria,
     effMixSottocategoria,
-    effMixFormato,
     effMixReferenza,
     effPrezzo: eff.effPrezzo,
     effCosto:  eff.effCosto,

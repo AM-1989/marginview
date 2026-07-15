@@ -207,7 +207,7 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
   });
 
   const totalMix = (b: ReturnType<typeof computeGroupBridge>) =>
-    b.effMixBrand + b.effMixSottocategoria + b.effMixFormato + b.effMixReferenza;
+    b.effMixBrand + b.effMixCategoria + b.effMixSottocategoria + b.effMixReferenza;
 
   // Column widths for hierarchical table
   const H = { name: '32%', p1: '10%', vol: '10%', mix: '10%', prc: '10%', cst: '10%', p2: '10%' };
