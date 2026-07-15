@@ -769,13 +769,12 @@ export function calculateVarianceEffects(lines: ComparedLine[], kpis: BaseKpis):
   const marginPctV = revV > 0 ? (revV - costV) / revV : marginPctP1;
   const effVolume  = marginPctV - marginPctP1;
 
-  // Scenario M: actual q2_i quantities × P1 effective prices/costs for ALL products.
-  // onlyP2: price1Effective = price2Raw (fallback) → effPrezzo = 0 for them → their
-  // entire margin contribution lands in effMix, per Alessio's spec: "un codice non
-  // presente in uno dei due periodi → variazione integralmente sull'effetto mix."
-  // onlyP1: q2 = 0 → contribute 0 naturally.
+  // Scenario M: actual q2_i quantities × P1 effective prices/costs.
+  // onlyP2 products are EXCLUDED: their effect lands entirely in effPrezzo (Scenario P−M),
+  // not in effMix. onlyP1: q2=0 → contribute 0 naturally.
   let revM = 0, costM = 0;
   for (const l of lines) {
+    if (l.presence === 'onlyP2') continue;
     revM  += l.q2 * l.price1Effective;
     costM += l.q2 * l.unitCost1Effective;
   }
@@ -1023,7 +1022,7 @@ function computeMixDecomposition(
       const k   = groupKey(l);
       const Q1g = groupQ1.get(k) ?? 0;
       const Q2g = groupQ2.get(k) ?? 0;
-      const qS  = (Q1g > 0 && (!ancestors || ancestors(l))) ? Q2g * (l.q1 / Q1g) : l.q2;
+      const qS  = (Q1g > 0 && (!ancestors || ancestors(l))) ? Q2g * (l.q1 / Q1g) : 0;
       setter(l, qS);
       revS  += qS * l.price1Effective;
       costS += qS * l.unitCost1Effective;
@@ -1257,7 +1256,7 @@ export function computeGroupBridge(lines: ComparedLine[]): GroupBridgeResult {
       const k = keyFn(l);
       const Q1g = gQ1.get(k) ?? 0;
       const Q2g = gQ2.get(k) ?? 0;
-      const qS = Q1g > 0 ? Q2g * (l.q1 / Q1g) : l.q2;
+      const qS = Q1g > 0 ? Q2g * (l.q1 / Q1g) : 0;
       rev  += qS * l.price1Effective;
       cost += qS * l.unitCost1Effective;
     }
