@@ -866,6 +866,7 @@ function buildCategoryWaterfall(
 
 function buildEffectsWaterfall(
   pct1: number, effVol: number, effMix: number, effPr: number, effCo: number, pct2: number,
+  skipVolume = false,
 ): WaterfallPoint[] {
   const pts: WaterfallPoint[] = [];
   let running = pct1 * 100;
@@ -885,7 +886,7 @@ function buildEffectsWaterfall(
   };
 
   addTotal('P1', pct1 * 100);
-  addEff('Volume', effVol);
+  if (!skipVolume) addEff('Volume', effVol);
   addEff('Mix', effMix);
   addEff('Prezzo', effPr);
   addEff('Costo', effCo);
@@ -1430,7 +1431,7 @@ export function computeVarianceEffects(
   );
   const waterfallMarginPct = buildEffectsWaterfall(
     kpis.marginPctP1, eff.effVolume, eff.effMix,
-    eff.effPrezzo, eff.effCosto, kpis.marginPctP2,
+    eff.effPrezzo, eff.effCosto, kpis.marginPctP2, true,
   );
 
   // ── Top drivers — reference-level, not rollup ───────────────────────────

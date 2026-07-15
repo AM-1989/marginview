@@ -139,7 +139,7 @@ function makeWfLabel(
     if (type === 'red'   && pt.red   === 0) return null;
 
     const cx = +(x ?? 0) + +(width ?? 0) / 2;
-    const cy = +(y ?? 0) - 5;
+    const cy = Math.max(8, +(y ?? 0) - 5);
     let label: string;
     let fill: string;
     if (type === 'total') {
@@ -193,8 +193,8 @@ function WaterfallChart({
           </span>
         ))}
       </div>
-      <ResponsiveContainer width="100%" height={250}>
-        <BarChart data={data} margin={{ top: 22, right: 10, bottom: 5, left: 10 }} barCategoryGap="20%">
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data} margin={{ top: 28, right: 10, bottom: 5, left: 10 }} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
           <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={52} />
@@ -1105,7 +1105,7 @@ export default function VarianceAnalysis() {
               <WaterfallChart
                 data={effects.waterfallMarginPct}
                 title="Waterfall — Margine %"
-                subtitle="Decomposizione Volume / Mix / Prezzo / Costo"
+                subtitle="Decomposizione Mix / Prezzo / Costo"
                 yFmt={v => `${(v as number).toFixed(1)}%`}
                 tooltip={WfTooltip}
               />
