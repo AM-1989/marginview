@@ -668,7 +668,7 @@ const SYSTEM_PROMPT_BASE =
   '(4) due raccomandazioni operative concrete e prioritizzate. ' +
   'Tra 180 e 220 parole in totale. Tono professionale e diretto. ' +
   'REGOLA ASSOLUTA: non usare mai le parole "margine di contribuzione" — ' +
-  'usa esclusivamente "margine".';
+  'usa esclusivamente "margine". FAI UN COMMENTO APPROFONDITO SUL MIX E TUTTE LE SCOMPOSIZIONI NON LIMITARTI A DIRE IL VALORE DI OGNI MIX MA COMMENTALO';
 
 const SYSTEM_PROMPTS = {
   varianza: SYSTEM_PROMPT_BASE,
