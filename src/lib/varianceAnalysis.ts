@@ -521,7 +521,13 @@ function buildReferenceKeyFn(allRows: VarRow[]): (row: VarRow) => string {
   return (row: VarRow): string => {
     const code = row.codiceMateriale.trim();
     const desc = row.descrizione.trim();
-    if (!code) return desc || '_unknown_';
+    if (!code) {
+      // No product code — use description + categorical dims to avoid merging distinct products
+      const dims = [row.brand, row.categoria, row.sottocategoria, row.formato]
+        .filter(Boolean).join('§');
+      const base = desc || '_unknown_';
+      return dims ? `${base}§${dims}` : base;
+    }
 
     const descs = codeToDescs.get(normalizeStr(code));
     const codeUnique = !descs || descs.size <= 1;
