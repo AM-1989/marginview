@@ -17,13 +17,20 @@ export interface AnalysisRow {
   cost:       number;   // total cost
   profit:     number;
   marginPct:  number;   // in percentage points (e.g. 10.9 for 10.9%)
+  giacenza?:  number;   // stock value in EUR (valore giacenza di magazzino)
 }
 
+export type RotazioneRating = 'A' | 'B' | 'C';
+
 export interface ClassifiedRow extends AnalysisRow {
-  cumRevenuePct: number;
-  ratingRevenue: AbcRating;
-  ratingMargin:  AbcRating;
-  segment:       SegmentKey;
+  cumRevenuePct:    number;
+  ratingRevenue:    AbcRating;
+  ratingMargin:     AbcRating;
+  segment:          SegmentKey;
+  rotazione?:       number;          // cost / giacenza (annual stock turns)
+  giorniGiacenza?:  number;          // giacenza * 365 / cost
+  ratingRotazione?: RotazioneRating; // A · veloce / B · media / C · lenta
+  ratingComplessivo?: string;        // e.g. "AAA", "AAB", "AA" (no giacenza)
 }
 
 export interface MatrixCell {
@@ -143,11 +150,13 @@ export function aggregateRows(rows: RowExcel[]): AnalysisRow[] {
         category: r.Categoria ?? '',
         brand:    r.Brand     ?? '',
         revenue: 0, cost: 0, profit: 0, marginPct: 0,
+        giacenza: r.GiacenzaMagazzino,
       });
     }
     const e = map.get(r.Referenza)!;
     e.revenue += rev;
     e.cost    += cost;
+    if (r.GiacenzaMagazzino !== undefined) e.giacenza = r.GiacenzaMagazzino;
   }
   for (const e of map.values()) {
     e.profit    = e.revenue - e.cost;
@@ -276,6 +285,11 @@ const COL_ALIASES: Record<string, string[]> = {
     'group', 'classe', 'reparto',
   ],
   brand: ['brand', 'marca'],
+  giacenza: [
+    'giacenza di magazzino', 'giacenza magazzino',
+    'giacenza', 'valore giacenza', 'valore magazzino',
+    'stock value', 'inventory value', 'scorte',
+  ],
 };
 
 function findCol(keys: string[], aliases: string[]): string | undefined {
@@ -332,6 +346,7 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
     marginAmbig: findCol(headers, COL_ALIASES.marginAmbig),
     category:    findCol(headers, COL_ALIASES.category),
     brand:       findCol(headers, COL_ALIASES.brand),
+    giacenza:    findCol(headers, COL_ALIASES.giacenza),
   };
 
   dbg('Headers:', headers);
@@ -380,7 +395,7 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
   // ── 4. Parse every row ────────────────────────────────────────────────────
   interface ParsedRow {
     id: string; name: string; category: string; brand: string;
-    revenue: number; cost: number; profit: number;
+    revenue: number; cost: number; profit: number; giacenza?: number;
   }
 
   const parsed: ParsedRow[] = [];
@@ -456,9 +471,10 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
     const name     = C.name     ? String(r[C.name]     ?? '').trim() : rowId;
     const category = C.category ? String(r[C.category] ?? '').trim() : '';
     const brand    = C.brand    ? String(r[C.brand]    ?? '').trim() : '';
+    const giacenza = C.giacenza ? (parseAbcNum(r[C.giacenza]) ?? undefined) : undefined;
 
     // Include only rows with positive revenue (already checked above)
-    parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit });
+    parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit, giacenza });
   }
 
   // ── 5. Aggregate by product ID (multi-period data) ────────────────────────
@@ -471,6 +487,8 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
       a.revenue += p.revenue;
       a.cost    += p.cost;
       a.profit  += p.profit;
+      // giacenza: overwrite with latest non-null value (point-in-time, not cumulative)
+      if (p.giacenza !== undefined) a.giacenza = p.giacenza;
     }
   }
 
@@ -486,6 +504,7 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
       cost:      a.cost,
       profit:    a.profit,
       marginPct: a.revenue > 0 ? a.profit / a.revenue * 100 : 0,
+      giacenza:  a.giacenza,
     });
   }
 
@@ -547,10 +566,13 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
 
 export function calculate(
   rows: AnalysisRow[],
-  thresholdA: number,  // relative % above avg → class A  (10 = ×1.10)
-  thresholdC: number,  // relative % below avg → class C  (10 = ×0.90)
+  thresholdA: number,  // pp above reference → class A  (5 = avg + 5pp)
+  thresholdC: number,  // pp below reference → class C  (5 = avg − 5pp)
   customMarginRef: number | null,
-  catMarginOverrides?: Record<string, { a: number; c: number }>, // per-category absolute thresholds
+  catMarginOverrides?: Record<string, { a: number; c: number }>, // per-category absolute thresholds (override)
+  marginBaseline: 'azienda' | 'categoria' = 'azienda',
+  rotazioneThresholdA: number = 90,   // giorni di giacenza < A → "veloce"
+  rotazioneThresholdC: number = 180,  // giorni di giacenza >= C → "lenta"
 ): AbcMetrics {
   const empty = (): AbcMetrics => ({
     products: [], totalRevenue: 0, totalCost: 0, totalProfit: 0,
@@ -608,25 +630,60 @@ export function calculate(
       };
     });
 
-  // ── Margin classification (multiplicative thresholds on weighted avg) ─────
-  // sogliaA = weightedMargin × (1 + thresholdA/100)
-  // sogliaC = weightedMargin × (1 - thresholdC/100)
+  // ── Per-category margins (for categoria baseline) ─────────────────────────
+  const catMarginMap = new Map<string, number>();
+  if (marginBaseline === 'categoria') {
+    const catAgg = new Map<string, { rev: number; profit: number }>();
+    for (const r of rows) {
+      const cat = r.category || '(N/D)';
+      if (!catAgg.has(cat)) catAgg.set(cat, { rev: 0, profit: 0 });
+      const c = catAgg.get(cat)!;
+      c.rev    += r.revenue;
+      c.profit += r.profit;
+    }
+    for (const [cat, c] of catAgg.entries()) {
+      catMarginMap.set(cat, c.rev > 0 ? c.profit / c.rev * 100 : weightedMargin);
+    }
+  }
+
+  // ── Margin classification (additive pp thresholds on reference margin) ────
+  // sogliaA = refMargin + thresholdA (pp)
+  // sogliaC = refMargin − thresholdC (pp)
+  // Reference margin: company-wide weightedMargin (azienda) or per-category average (categoria).
   // When weightedMargin=0 both thresholds = 0; all non-negative → Margine A (degenerate).
-  // This is expected behaviour — the caller should check marginDegenerate and suppress alerts.
-  const sogliaA = weightedMargin * (1 + thresholdA / 100);
-  const sogliaC = weightedMargin * (1 - thresholdC / 100);
+  const sogliaA = weightedMargin + thresholdA;
+  const sogliaC = weightedMargin - thresholdC;
 
   const products: ClassifiedRow[] = withRev.map(r => {
-    const ovr = catMarginOverrides?.[r.category ?? '(N/D)'];
-    const sA = ovr ? ovr.a : sogliaA;
-    const sC = ovr ? ovr.c : sogliaC;
+    const cat = r.category || '(N/D)';
+    const refMargin = marginBaseline === 'categoria'
+      ? (catMarginMap.get(cat) ?? weightedMargin)
+      : weightedMargin;
+    const ovr = catMarginOverrides?.[cat];
+    const sA = ovr ? ovr.a : refMargin + thresholdA;
+    const sC = ovr ? ovr.c : refMargin - thresholdC;
     const rM: AbcRating =
       r.marginPct >= sA ? 'A' :
       r.marginPct >= sC ? 'B' : 'C';
+    const rotazione      = r.giacenza && r.giacenza > 0 && r.cost > 0
+      ? r.cost / r.giacenza : undefined;
+    const giorniGiacenza = r.giacenza && r.giacenza > 0 && r.cost > 0
+      ? r.giacenza * 365 / r.cost : undefined;
+    const ratingRotazione: RotazioneRating | undefined = giorniGiacenza !== undefined
+      ? giorniGiacenza < rotazioneThresholdA ? 'A'
+        : giorniGiacenza < rotazioneThresholdC ? 'B' : 'C'
+      : undefined;
+    const ratingComplessivo = ratingRotazione !== undefined
+      ? `${r.ratingRevenue}${rM}${ratingRotazione}`
+      : `${r.ratingRevenue}${rM}`;
     return {
       ...r,
       ratingMargin: rM,
       segment: `${r.ratingRevenue}${rM}` as SegmentKey,
+      rotazione,
+      giorniGiacenza,
+      ratingRotazione,
+      ratingComplessivo,
     };
   });
 
@@ -637,13 +694,13 @@ export function calculate(
 
   if (products.length > 10) {
     if (cntMargA / products.length > 0.9) {
-      warnings.push(`Distribuzione margini degenerata: >90% in Margine A. Soglia A=${sogliaA.toFixed(2)}%`);
+      warnings.push(`Distribuzione margini degenerata: >90% in Margine A. Soglia A=${sogliaA.toFixed(2)}% (media ${weightedMargin.toFixed(2)}% + ${thresholdA} pp)`);
     }
     if (cntMargB / products.length > 0.95) {
       warnings.push(`Distribuzione margini degenerata: >95% in Margine B. Soglie: A>=${sogliaA.toFixed(2)}%, C<${sogliaC.toFixed(2)}%`);
     }
     if (cntMargC / products.length > 0.9) {
-      warnings.push(`Distribuzione margini degenerata: >90% in Margine C. Soglia C=${sogliaC.toFixed(2)}%`);
+      warnings.push(`Distribuzione margini degenerata: >90% in Margine C. Soglia C=${sogliaC.toFixed(2)}% (media ${weightedMargin.toFixed(2)}% − ${thresholdC} pp)`);
     }
   }
 
@@ -726,8 +783,8 @@ export function calculate(
   dbg(`Costo tot.      : ${totalCost.toFixed(2)}`);
   dbg(`Margine €       : ${totalProfit.toFixed(2)}`);
   dbg(`Margine medio % : ${weightedMargin.toFixed(4)}%`);
-  dbg(`Soglia A        : >= ${sogliaA.toFixed(4)}%`);
-  dbg(`Soglia C        : <  ${sogliaC.toFixed(4)}%`);
+  dbg(`Soglia A        : >= ${sogliaA.toFixed(4)}% (media ${weightedMargin.toFixed(4)}% + ${thresholdA} pp)`);
+  dbg(`Soglia C        : <  ${sogliaC.toFixed(4)}% (media ${weightedMargin.toFixed(4)}% − ${thresholdC} pp)`);
   dbg(`Rating Fatt.    : A=${cntRevA}  B=${cntRevB}  C=${cntRevC}`);
   dbg(`Rating Marg.    : A=${cntMargA}  B=${cntMargB}  C=${cntMargC}`);
   dbg(`marginDegenerate: ${marginDegenerate}`);
@@ -969,7 +1026,7 @@ export function _runSelfTest(): boolean {
     check('Fallback: warnings emitted',       result.warnings.length > 0, true, 0);
   }
 
-  // ── Test 7: calculate() — multiplicative margin thresholds ───────────────
+  // ── Test 7: calculate() — additive pp margin thresholds ─────────────────
   {
     const input: AnalysisRow[] = [
       { id:'T001', name:'A', category:'', brand:'', revenue:2000, cost:1600, profit:400,  marginPct:20 },
@@ -982,9 +1039,9 @@ export function _runSelfTest(): boolean {
     const m = calculate(input, 10, 10, null);
     const wm = 790 / 4000 * 100;
     check('calc: weightedMargin', m.weightedMargin, wm);
-    // T002: 30% >= wm*1.10=21.725% → Margine A
+    // T002: 30% >= wm+10pp=29.75% → Margine A
     check('calc: T002 ratingMargin', m.products.find(p => p.id==='T002')?.ratingMargin, 'A', 0);
-    // T004: -16.7% < wm*0.90=17.775% → Margine C
+    // T004: -16.7% < wm-10pp=9.75% → Margine C
     check('calc: T004 ratingMargin', m.products.find(p => p.id==='T004')?.ratingMargin, 'C', 0);
     // Revenue sort desc: T001(2000)→cum50%≤70%→A, T002(1000)→cum75%>70%→B
     check('calc: T001 ratingRevenue', m.products.find(p => p.id==='T001')?.ratingRevenue, 'A', 0);

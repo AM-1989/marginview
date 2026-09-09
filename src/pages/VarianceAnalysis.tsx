@@ -258,6 +258,100 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 
 
+// ─── Bridge table Excel export ────────────────────────────────────────────────
+
+function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[]) {
+  const fmtPP  = (v: number) => !isFinite(v) || Math.abs(v) < 5e-5 ? '0,00%' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+  const fmtPV  = (v: number | null) => v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
+
+  type XlsRow = Record<string, string | number>;
+  const rows: XlsRow[] = [];
+
+  const addRow = (
+    livello: string, label: string,
+    cosP1: number | null, cosP2: number | null,
+    vol: number, mixCanale: number, mixBrand: number,
+    mixCat: number, mixSubcat: number, mixRef: number,
+    price: number, costo: number,
+  ) => {
+    rows.push({
+      'Livello':     livello,
+      'Etichetta':   label,
+      'Cos% P1':     fmtPV(cosP1),
+      'Volume':      fmtPP(vol),
+      'Mix Canale':  fmtPP(mixCanale),
+      'Mix Brand':   fmtPP(mixBrand),
+      'Mix Cat.':    fmtPP(mixCat),
+      'Mix Sottocat.': fmtPP(mixSubcat),
+      'Mix Ref.':    fmtPP(mixRef),
+      'Price':       fmtPP(price),
+      'Costo':       fmtPP(costo),
+      'Cos% P2':     fmtPV(cosP2),
+    });
+  };
+
+  // Build hierarchy — same grouping as HierarchicalBridgeTable
+  const canaleMap = new Map<string, ComparedLine[]>();
+  for (const l of allLines) {
+    const cn = l.canale || '-';
+    if (!canaleMap.has(cn)) canaleMap.set(cn, []);
+    canaleMap.get(cn)!.push(l);
+  }
+
+  for (const [canale, cnLines] of canaleMap.entries()) {
+    const cnb = computeGroupBridge(cnLines);
+    addRow('CANALE', canale, cnb.cosP1, cnb.cosP2,
+      cnb.effVolume, 0, cnb.effMixBrand, cnb.effMixCategoria, cnb.effMixSottocategoria, cnb.effMixReferenza, cnb.effPrezzo, cnb.effCosto);
+
+    const brandMap = new Map<string, ComparedLine[]>();
+    for (const l of cnLines) { const b = l.brand || '-'; if (!brandMap.has(b)) brandMap.set(b, []); brandMap.get(b)!.push(l); }
+
+    for (const [brand, bLines] of brandMap.entries()) {
+      const bb = computeGroupBridge(bLines);
+      addRow('Brand', `  ${brand}`, bb.cosP1, bb.cosP2,
+        bb.effVolume, 0, 0, bb.effMixCategoria, bb.effMixSottocategoria, bb.effMixReferenza, bb.effPrezzo, bb.effCosto);
+
+      const catMap = new Map<string, ComparedLine[]>();
+      for (const l of bLines) { const c = l.categoria || '-'; if (!catMap.has(c)) catMap.set(c, []); catMap.get(c)!.push(l); }
+
+      for (const [categoria, cLines] of catMap.entries()) {
+        const cb = computeGroupBridge(cLines);
+        addRow('Categoria', `    ${categoria}`, cb.cosP1, cb.cosP2,
+          cb.effVolume, 0, 0, 0, cb.effMixSottocategoria, cb.effMixReferenza, cb.effPrezzo, cb.effCosto);
+
+        const scMap = new Map<string, ComparedLine[]>();
+        for (const l of cLines) { const s = l.sottocategoria || '-'; if (!scMap.has(s)) scMap.set(s, []); scMap.get(s)!.push(l); }
+
+        for (const [subcat, sLines] of scMap.entries()) {
+          const sb = computeGroupBridge(sLines);
+          addRow('Sottocategoria', `      ${subcat}`, sb.cosP1, sb.cosP2,
+            sb.effVolume, 0, 0, 0, 0, sb.effMixReferenza, sb.effPrezzo, sb.effCosto);
+
+          const refMap = new Map<string, ComparedLine[]>();
+          for (const l of sLines) { const r = l.codice || l.descrizione || '-'; if (!refMap.has(r)) refMap.set(r, []); refMap.get(r)!.push(l); }
+
+          for (const [referenza, rLines] of refMap.entries()) {
+            const rb = computeGroupBridge(rLines);
+            const first = rLines[0];
+            const lbl = first.codice ? `${first.codice}${first.descrizione ? ' — ' + first.descrizione : ''}` : first.descrizione || referenza;
+            addRow('Referenza', `        ${lbl}`, rb.cosP1, rb.cosP2,
+              rb.effVolume, 0, 0, 0, 0, 0, rb.effPrezzo, rb.effCosto);
+          }
+        }
+      }
+    }
+  }
+
+  const md = effects.mixDecomposition;
+  addRow('TOTALE', 'Totale complessivo', effects.marginPctP1, effects.marginPctP2,
+    effects.effVolume, md.canale, md.brand, md.categoria, md.sottocategoria, md.formato + md.residuo, effects.effPrezzo, effects.effCosto);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Bridge');
+  XLSX.writeFile(wb, 'varianza-bridge.xlsx');
+}
+
 // ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
 // Pivot table: Canale → Brand → Sottocategoria → Formato → Referenza Servizio (5 levels)
 // Columns: Cos%P1 | Volume | Mix Brand | Mix Sottocat. | Mix Formato | Mix Ref. | Price | Costo | Cos%P2
@@ -269,7 +363,7 @@ interface HierSubcatNode  { subcat: string;    bridge: GroupBridgeResult; refere
 interface HierLeafNode    { referenza: string; label: string; bridge: GroupBridgeResult }
 
 const fmtPctV = (v: number | null) =>
-  v === null || !isFinite(v) ? 'N/D' : `${(v * 100).toFixed(2)}%`;
+  v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
 
 const fmtEff = (v: number) => {
   if (!isFinite(v) || Math.abs(v) < 5e-5) return '0.00%';
@@ -891,28 +985,36 @@ export default function VarianceAnalysis() {
             </p>
           </div>
           {canShowResults && effects && (
-            <button
-              onClick={async () => {
-                if (exportingPdf) return;
-                setExportingPdf(true);
-                try {
-                  await downloadPDF(
-                    <VariancePDF
-                      effects={effects}
-                      p1Label={p1Keys.join(', ')}
-                      p2Label={p2Keys.join(', ')}
-                      aiComment={aiComment}
-                      consultantNote={consultantNote}
-                    />,
-                    'varianza-margini.pdf',
-                  );
-                } finally { setExportingPdf(false); }
-              }}
-              disabled={exportingPdf}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
-            >
-              <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportBridgeToExcel(effects, effects.lines)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+              >
+                <FileDown className="w-4 h-4" /> Esporta Excel
+              </button>
+              <button
+                onClick={async () => {
+                  if (exportingPdf) return;
+                  setExportingPdf(true);
+                  try {
+                    await downloadPDF(
+                      <VariancePDF
+                        effects={effects}
+                        p1Label={p1Keys.join(', ')}
+                        p2Label={p2Keys.join(', ')}
+                        aiComment={aiComment}
+                        consultantNote={consultantNote}
+                      />,
+                      'varianza-margini.pdf',
+                    );
+                  } finally { setExportingPdf(false); }
+                }}
+                disabled={exportingPdf}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
+              </button>
+            </div>
           )}
         </div>
 

@@ -97,6 +97,14 @@ function ProductCard({ p }: { p: ClassifiedRow }) {
         <span className={`font-semibold ${isGood ? 'text-emerald-600' : 'text-red-500'}`}>{fmtPct(p.marginPct)}</span>
       </div>
       <ProgressBar value={Math.max(0, p.marginPct)} max={50} color={isGood ? 'bg-emerald-500' : 'bg-red-400'} />
+      {p.giorniGiacenza !== undefined && (
+        <p className="text-[10px] text-slate-400 mt-1.5">
+          {p.giorniGiacenza.toFixed(0)} gg ·{' '}
+          <span className={p.ratingRotazione === 'A' ? 'text-emerald-600' : p.ratingRotazione === 'C' ? 'text-red-500' : 'text-amber-600'}>
+            {p.ratingRotazione === 'A' ? 'veloce' : p.ratingRotazione === 'C' ? 'lenta' : 'media'}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -105,8 +113,11 @@ function ProductCard({ p }: { p: ClassifiedRow }) {
 export default function ABCMatrix() {
   const [rows, setRows]                       = useState<AnalysisRow[] | null>(null);
   const [activeTab, setActiveTab]             = useState<'prodotti' | 'categorie'>('prodotti');
-  const [thresholdA, setThresholdA]           = useState(10);
-  const [thresholdC, setThresholdC]           = useState(10);
+  const [thresholdA, setThresholdA]           = useState(5);
+  const [thresholdC, setThresholdC]           = useState(5);
+  const [marginBaseline, setMarginBaseline]   = useState<'azienda' | 'categoria'>('azienda');
+  const [rotThresholdA, setRotThresholdA]     = useState(90);   // giorni < A → veloce
+  const [rotThresholdC, setRotThresholdC]     = useState(180);  // giorni >= C → lenta
   const [customMarginOn, setCustomMarginOn]   = useState(false);
   const [customMarginVal, setCustomMarginVal] = useState(20);
   const [whatIfExcl, setWhatIfExcl]           = useState<SegmentKey[]>([]);
@@ -149,13 +160,13 @@ export default function ABCMatrix() {
   }, [catThresholds]);
 
   const metrics = useMemo(
-    () => calculate(rows ?? [], thresholdA, thresholdC, customMarginOn ? customMarginVal : null, activeCatOverrides),
-    [rows, thresholdA, thresholdC, customMarginOn, customMarginVal, activeCatOverrides],
+    () => calculate(rows ?? [], thresholdA, thresholdC, customMarginOn ? customMarginVal : null, activeCatOverrides, marginBaseline, rotThresholdA, rotThresholdC),
+    [rows, thresholdA, thresholdC, customMarginOn, customMarginVal, activeCatOverrides, marginBaseline, rotThresholdA, rotThresholdC],
   );
 
   const categoryMetrics = useMemo(
-    () => calculate(aggregateByCategory(rows ?? []), thresholdA, thresholdC, customMarginOn ? customMarginVal : null),
-    [rows, thresholdA, thresholdC, customMarginOn, customMarginVal],
+    () => calculate(aggregateByCategory(rows ?? []), thresholdA, thresholdC, customMarginOn ? customMarginVal : null, undefined, marginBaseline, rotThresholdA, rotThresholdC),
+    [rows, thresholdA, thresholdC, customMarginOn, customMarginVal, marginBaseline, rotThresholdA, rotThresholdC],
   );
 
   const activeMetrics = activeTab === 'categorie' ? categoryMetrics : metrics;
@@ -310,6 +321,28 @@ export default function ABCMatrix() {
           criticalAC:     matrix.AC?.count ?? 0,
           margineGlobale: weightedMargin,
           top3SharePct:   top3Share,
+          // extended context for the AI report
+          totalRevenue,
+          totalProfit,
+          gini:           gini.toFixed(2),
+          paretoIndex:    paretoIndex.toFixed(1),
+          starRevenuePct: starRevenuePct.toFixed(1),
+          riskRevenuePct: riskRevenuePct.toFixed(1),
+          healthScore:    health.total,
+          matrixAA: matrix.AA.count, matrixAB: matrix.AB.count, matrixAC: matrix.AC.count,
+          matrixBA: matrix.BA.count, matrixBB: matrix.BB.count, matrixBC: matrix.BC.count,
+          matrixCA: matrix.CA.count, matrixCB: matrix.CB.count, matrixCC: matrix.CC.count,
+          sogliaMargineA: weightedMargin + thresholdA,
+          sogliaMargineC: weightedMargin - thresholdC,
+          baseline:       marginBaseline,
+          topCategorie:   categories.slice(0, 5).map(c => ({ categoria: c.category, fatturato: c.revenue, margine: c.marginPct.toFixed(1) + '%' })),
+          prodottiInPerdita: products.filter(p => p.marginPct < 0).length,
+          hasGiacenza:       products.some(p => p.giacenza !== undefined),
+          rotazioneVeloce:   products.filter(p => p.ratingRotazione === 'A').length,
+          rotazioneMedia:    products.filter(p => p.ratingRotazione === 'B').length,
+          rotazioneLenta:    products.filter(p => p.ratingRotazione === 'C').length,
+          sogliRotazioneA:   rotThresholdA,
+          sogliRotazioneC:   rotThresholdC,
         },
       }),
       signal: ctrl.signal,
@@ -335,6 +368,62 @@ export default function ABCMatrix() {
       }
     } catch { alert('Errore lettura file. Assicurati che sia un Excel valido.'); }
     finally { setLoadingFile(false); }
+  }
+
+  function handleExportExcel() {
+    const hasGiacenza = products.some(p => p.giacenza !== undefined);
+    const SEGMENT_ORDER: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
+
+    // Sort: by segment (AA→CC), then by revenue descending within each block
+    const sorted = [...products].sort((a, b) => {
+      const si = SEGMENT_ORDER.indexOf(a.segment) - SEGMENT_ORDER.indexOf(b.segment);
+      return si !== 0 ? si : b.revenue - a.revenue;
+    });
+
+    const rotLabel = (r: typeof products[0]) => {
+      if (r.ratingRotazione === 'A') return 'A · veloce';
+      if (r.ratingRotazione === 'B') return 'B · media';
+      if (r.ratingRotazione === 'C') return 'C · lenta';
+      return '';
+    };
+
+    const exportRows = sorted.map(p => {
+      const row: Record<string, string | number> = {
+        'Codice':                p.id,
+        'Descrizione':           p.name,
+        'Brand':                 p.brand,
+        'Categoria':             p.category,
+        'Fatturato':             p.revenue,
+        'Margine %':             p.marginPct / 100,   // decimal fraction (0.137), matches Alessio's format
+        'Margine (€)':           p.profit,
+        'Rating Fatturato':      p.ratingRevenue,
+        'Rating Margine':        p.ratingMargin,
+        'Blocco (Fatt.×Marg.)':  p.segment,
+      };
+      if (hasGiacenza) {
+        row['Rating Rotazione']        = rotLabel(p);
+        row['Giacenza magazzino (€)']  = p.giacenza ?? '';
+        row['Giorni di Giacenza']      = p.giorniGiacenza !== undefined ? +p.giorniGiacenza.toFixed(0) : '';
+        row['Rating complessivo']      = p.ratingComplessivo ?? '';
+      } else {
+        row['Rating complessivo']      = `${p.ratingRevenue}${p.ratingMargin}`;
+      }
+      return row;
+    });
+
+    const totalProducts = exportRows.length;
+    const wb = XLSX.utils.book_new();
+
+    // Title rows + data
+    const wsData: unknown[][] = [
+      [`Tutti i codici · elenco completo con rating  ·  ${totalProducts} codici`],
+      [`Ordinato per blocco Fatturato×Margine (AA → CC) e, all'interno di ognuno, per fatturato decrescente.`],
+      Object.keys(exportRows[0] ?? {}),
+      ...exportRows.map(r => Object.values(r)),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Tutti i codici');
+    XLSX.writeFile(wb, 'analisi-abc.xlsx');
   }
 
   async function handleExportPDF() {
@@ -390,7 +479,7 @@ export default function ABCMatrix() {
             {!loadingFile && (
               <>
                 <p className="text-sm text-slate-500">4 colonne: Articolo, Fatturato, Categoria, Margine (%)</p>
-                <p className="text-sm text-slate-500 mt-1.5">+ colonne opzionali (rilevate da intestazione): <strong className="text-slate-700">Brand / Marca</strong>, <strong className="text-slate-700">Rotazione</strong> magazzino</p>
+                <p className="text-sm text-slate-500 mt-1.5">+ colonne opzionali: <strong className="text-slate-700">Brand / Marca</strong>, <strong className="text-slate-700">Giacenza di Magazzino</strong> (valore €)</p>
                 <p className="text-sm text-slate-400 mt-4">Trascina qui o clicca per selezionare (.xlsx, .xls, .csv)</p>
               </>
             )}
@@ -424,6 +513,12 @@ export default function ABCMatrix() {
               ref={mainInputRef}
               onChange={e => { const f = e.target.files?.[0]; if (f) handleMainFile(f); e.target.value = ''; }} />
           </label>
+          <button
+            onClick={handleExportExcel}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+          >
+            <FileDown className="w-4 h-4" /> Esporta Excel
+          </button>
           <button
             onClick={handleExportPDF}
             disabled={exportingPdf}
@@ -549,8 +644,15 @@ export default function ABCMatrix() {
               <div className="max-h-48 overflow-y-auto space-y-1">
                 {products.filter(p => p.segment === selectedCell).map(p => (
                   <div key={p.id} className="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-slate-50">
-                    <span className="text-slate-600 truncate max-w-[200px]">{p.name}</span>
-                    <span className="font-medium text-slate-800 ml-2 flex-shrink-0">{fmtK(p.revenue)} · {fmtPct(p.marginPct)}</span>
+                    <span className="text-slate-600 truncate max-w-[160px]">{p.name}</span>
+                    <span className="font-medium text-slate-800 ml-2 flex-shrink-0 flex items-center gap-1.5">
+                      {fmtK(p.revenue)} · {fmtPct(p.marginPct)}
+                      {p.ratingRotazione && (
+                        <span className={`text-[10px] font-bold px-1 rounded ${p.ratingRotazione === 'A' ? 'text-emerald-600' : p.ratingRotazione === 'C' ? 'text-red-500' : 'text-amber-600'}`}>
+                          {p.ratingComplessivo}
+                        </span>
+                      )}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -563,28 +665,32 @@ export default function ABCMatrix() {
           <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-500">Impostazioni Margine</h3>
 
           <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-600">Baseline Rating Margine</label>
+            <select
+              value={marginBaseline}
+              onChange={e => setMarginBaseline(e.target.value as 'azienda' | 'categoria')}
+              className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-white focus:outline-none focus:border-blue-400"
+            >
+              <option value="azienda">Scostamento vs Media Aziendale</option>
+              <option value="categoria">Scostamento vs Media per Categoria</option>
+            </select>
+          </div>
+
+          <div className="space-y-1">
             <label className="text-xs font-medium text-slate-600">Riferimento media</label>
             <select
               value={customMarginOn ? 'custom' : 'auto'}
               onChange={e => setCustomMarginOn(e.target.value === 'custom')}
               className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-white focus:outline-none focus:border-blue-400"
             >
-              <option value="auto">Media Azienda</option>
+              <option value="auto">Media dai dati</option>
               <option value="custom">Personalizzato</option>
             </select>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-slate-600">Margine medio personalizzato</label>
-            <button onClick={() => setCustomMarginOn(v => !v)}
-              className={`relative inline-flex h-5 w-9 rounded-full transition-colors ${customMarginOn ? 'bg-blue-500' : 'bg-slate-200'}`}>
-              <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${customMarginOn ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-
           {customMarginOn && (
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Valore %</label>
+              <label className="text-xs font-medium text-slate-600">Valore margine riferimento (%)</label>
               <input type="number" value={customMarginVal} onChange={e => setCustomMarginVal(+e.target.value)}
                 className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
             </div>
@@ -592,20 +698,44 @@ export default function ABCMatrix() {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Soglia A (% relativa, es. 10)</label>
-              <input type="number" value={thresholdA} onChange={e => setThresholdA(+e.target.value)}
+              <label className="text-xs font-medium text-slate-600">Soglia A (pp)</label>
+              <input type="number" min={0} step={1} value={thresholdA} onChange={e => setThresholdA(+e.target.value)}
                 className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-600">Soglia C (% relativa, es. 10)</label>
-              <input type="number" value={thresholdC} onChange={e => setThresholdC(+e.target.value)}
+              <label className="text-xs font-medium text-slate-600">Soglia C (pp)</label>
+              <input type="number" min={0} step={1} value={thresholdC} onChange={e => setThresholdC(+e.target.value)}
                 className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
             </div>
           </div>
 
           <p className="text-[11px] text-slate-400">
-            Media pesata dai dati · A ≥ media×{(1 + thresholdA / 100).toFixed(2)} · C &lt; media×{(1 - thresholdC / 100).toFixed(2)}
+            {marginBaseline === 'categoria'
+              ? `Soglie per categoria · A ≥ media cat. + ${thresholdA} pp · C < media cat. − ${thresholdC} pp`
+              : `Media aziendale ${weightedMargin.toFixed(1)}% · A ≥ ${(weightedMargin + thresholdA).toFixed(1)}% · C < ${(weightedMargin - thresholdC).toFixed(1)}%`}
           </p>
+
+          {/* Rotation thresholds — shown only when giacenza data is present */}
+          {products.some(p => p.giacenza !== undefined) && (
+            <div className="border-t border-slate-100 pt-3 space-y-2">
+              <p className="text-xs font-medium text-slate-600">Soglie Rotazione Magazzino (giorni)</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-500">A · veloce (&lt; gg)</label>
+                  <input type="number" min={1} step={1} value={rotThresholdA} onChange={e => setRotThresholdA(+e.target.value)}
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-slate-500">C · lenta (≥ gg)</label>
+                  <input type="number" min={1} step={1} value={rotThresholdC} onChange={e => setRotThresholdC(+e.target.value)}
+                    className="w-full h-9 px-3 rounded-md border border-slate-200 text-sm bg-slate-50 focus:outline-none focus:border-blue-400" />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                A &lt; {rotThresholdA}gg · B {rotThresholdA}–{rotThresholdC}gg · C ≥ {rotThresholdC}gg
+              </p>
+            </div>
+          )}
 
           {/* Per-category thresholds */}
           {categories.length > 0 && (

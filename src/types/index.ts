@@ -20,6 +20,9 @@ export interface RowExcel {
   Quantita: number;
   PrezzoUnitario: number;
   CostoUnitario: number;
+
+  // Optional stock / inventory value
+  GiacenzaMagazzino?: number;
 }
 
 // ─── ABC Analysis ─────────────────────────────────────────────────────────────
