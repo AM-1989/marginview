@@ -9,8 +9,8 @@ import {
   Target, Activity, Star, TriangleAlert, Users, Heart,
   Zap, Sparkles, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
-  Minus, Eye, Search, AlertCircle, Layers,
-  MessageSquareText, PenLine, Copy, Check,
+  Minus, Eye, AlertCircle, Layers,
+  MessageSquareText, Copy, Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { downloadPDF } from '../lib/exportPDF';
@@ -99,10 +99,7 @@ function ProductCard({ p }: { p: ClassifiedRow }) {
       <ProgressBar value={Math.max(0, p.marginPct)} max={50} color={isGood ? 'bg-emerald-500' : 'bg-red-400'} />
       {p.giorniGiacenza !== undefined && (
         <p className="text-[10px] text-slate-400 mt-1.5">
-          {p.giorniGiacenza.toFixed(0)} gg ·{' '}
-          <span className={p.ratingRotazione === 'A' ? 'text-emerald-600' : p.ratingRotazione === 'C' ? 'text-red-500' : 'text-amber-600'}>
-            {p.ratingRotazione === 'A' ? 'veloce' : p.ratingRotazione === 'C' ? 'lenta' : 'media'}
-          </span>
+          {p.giorniGiacenza.toFixed(0)} gg
         </p>
       )}
     </div>
@@ -126,9 +123,6 @@ export default function ABCMatrix() {
   const [selectedCell, setSelectedCell]       = useState<SegmentKey | null>(null);
   const [loadingFile, setLoadingFile]         = useState(false);
   const [uploadDragging, setUploadDragging]   = useState(false);
-  const [heatmapFilter, setHeatmapFilter]     = useState<SegmentKey | null>(null);
-  const [expandedCats, setExpandedCats]       = useState<Set<string>>(new Set());
-  const [heatSearch, setHeatSearch]           = useState('');
   const [alertFilter, setAlertFilter]         = useState<'all' | 'critical' | 'warning' | 'opportunity'>('all');
   const [expandedSegments, setExpandedSegments] = useState<Set<SegmentKey>>(new Set());
   const [parseWarnings, setParseWarnings]       = useState<string[]>([]);
@@ -143,14 +137,6 @@ export default function ABCMatrix() {
   const [aiComment,      setAiComment]      = useState<string | null>(null);
   const [aiLoading,      setAiLoading]      = useState(false);
   const [aiError,        setAiError]        = useState<string | null>(null);
-  const [consultantNote, setConsultantNote] = useState('');
-
-  const noteKey = 'marginview_abc_matrix_note';
-
-  useEffect(() => {
-    setConsultantNote(localStorage.getItem(noteKey) ?? '');
-  }, []);
-
   // ── Calculations ──────────────────────────────────────────────────────────
   const activeCatOverrides = useMemo(() => {
     const result: Record<string, { a: number; c: number }> = {};
@@ -246,36 +232,18 @@ export default function ABCMatrix() {
   const btmCats   = [...catSorted].reverse().slice(0, 5);
   const shownCats = catDir === 'top' ? topCats : btmCats;
 
-  // ── Heatmap per articolo ──────────────────────────────────────────────────
-  const heatmapCategories = useMemo(() => {
-    const map = new Map<string, ClassifiedRow[]>();
-    for (const p of products) {
-      const cat = p.category || '(N/D)';
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(p);
-    }
-    const result = [...map.entries()]
-      .map(([cat, prods]) => ({
-        cat,
-        prods: prods.sort((a, b) => b.revenue - a.revenue),
-        totalRevenue: prods.reduce((s, p) => s + p.revenue, 0),
-      }))
-      .sort((a, b) => b.totalRevenue - a.totalRevenue);
-    return result;
+  // ── Rotation stats (only when giacenza data is present) ───────────────────
+  const hasGiacenza = products.some(p => p.giacenza !== undefined);
+  const rotStats = useMemo(() => {
+    const withRot  = products.filter(p => p.ratingRotazione);
+    const totalRev = withRot.reduce((s, p) => s + p.revenue, 0);
+    const build = (r: 'A' | 'B' | 'C') => {
+      const g = withRot.filter(p => p.ratingRotazione === r);
+      const rev = g.reduce((s, p) => s + p.revenue, 0);
+      return { count: g.length, rev, pct: totalRev > 0 ? rev / totalRev : 0 };
+    };
+    return { veloce: build('A'), media: build('B'), lenta: build('C') };
   }, [products]);
-
-  const heatmapFiltered = useMemo(() => {
-    let base = heatmapCategories;
-    if (heatmapFilter) base = base.map(c => ({ ...c, prods: c.prods.filter(p => p.segment === heatmapFilter) })).filter(c => c.prods.length > 0);
-    if (heatSearch.trim()) {
-      const q = heatSearch.trim().toLowerCase();
-      base = base.filter(c =>
-        c.cat.toLowerCase().includes(q) ||
-        c.prods.some(p => p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)),
-      );
-    }
-    return base;
-  }, [heatmapCategories, heatmapFilter, heatSearch]);
 
   // ── Heatmap categoria × segmento ─────────────────────────────────────────
   const catHeatmap = useMemo(() => {
@@ -372,7 +340,6 @@ export default function ABCMatrix() {
   }
 
   function handleExportExcel() {
-    const hasGiacenza = products.some(p => p.giacenza !== undefined);
     const SEGMENT_ORDER: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
 
     // Sort: by segment (AA→CC), then by revenue descending within each block
@@ -381,12 +348,8 @@ export default function ABCMatrix() {
       return si !== 0 ? si : b.revenue - a.revenue;
     });
 
-    const rotLabel = (r: typeof products[0]) => {
-      if (r.ratingRotazione === 'A') return 'A · veloce';
-      if (r.ratingRotazione === 'B') return 'B · media';
-      if (r.ratingRotazione === 'C') return 'C · lenta';
-      return '-';
-    };
+    const rotLabel = (r: typeof products[0]) =>
+      r.giorniGiacenza !== undefined ? `${r.giorniGiacenza.toFixed(0)} gg` : '-';
 
     const exportRows = sorted.map(p => {
       const row: Record<string, string | number> = {
@@ -454,7 +417,6 @@ export default function ABCMatrix() {
           enrichedActions={enrichedActions.map(({ icon: _icon, ...rest }) => rest) as EnrichedAction[]}
           totalImpact={totalImpact}
           aiComment={aiComment}
-          consultantNote={consultantNote}
         />,
         'abc-analisi.pdf',
       );
@@ -487,8 +449,17 @@ export default function ABCMatrix() {
             {!loadingFile && (
               <>
                 <p className="text-sm text-slate-500">4 colonne: Articolo, Fatturato, Categoria, Margine (%)</p>
-                <p className="text-sm text-slate-500 mt-1.5">+ colonne opzionali: <strong className="text-slate-700">Brand / Marca</strong>, <strong className="text-slate-700">Giacenza di Magazzino</strong> (valore €)</p>
+                <p className="text-sm text-slate-500 mt-1.5">+ colonne opzionali: <strong className="text-slate-700">Brand / Marca</strong>, <strong className="text-slate-700">Costo del Venduto</strong>, <strong className="text-slate-700">Giacenza di Magazzino</strong> (valore €)</p>
                 <p className="text-sm text-slate-400 mt-4">Trascina qui o clicca per selezionare (.xlsx, .xls, .csv)</p>
+                <a
+                  href="/template-abc.xlsx"
+                  download
+                  onClick={e => e.stopPropagation()}
+                  className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Scarica Template
+                </a>
               </>
             )}
             <input ref={uploadInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -655,8 +626,8 @@ export default function ABCMatrix() {
                     <span className="text-slate-600 truncate max-w-[160px]">{p.name}</span>
                     <span className="font-medium text-slate-800 ml-2 flex-shrink-0 flex items-center gap-1.5">
                       {fmtK(p.revenue)} · {fmtPct(p.marginPct)}
-                      {p.ratingRotazione && (
-                        <span className={`text-[10px] font-bold px-1 rounded ${p.ratingRotazione === 'A' ? 'text-emerald-600' : p.ratingRotazione === 'C' ? 'text-red-500' : 'text-amber-600'}`}>
+                      {p.ratingComplessivo && (
+                        <span className="text-[10px] font-bold px-1 rounded text-slate-500">
                           {p.ratingComplessivo}
                         </span>
                       )}
@@ -872,6 +843,86 @@ export default function ABCMatrix() {
         </div>
       </div>
 
+      {/* ── Rotazione Magazzino KPI (solo se giacenza presente) ──────────────── */}
+      {hasGiacenza && (
+        <div className="bg-white rounded-xl border border-slate-200 p-5">
+          <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500 mb-4">Rotazione Magazzino</h3>
+          <div className="grid grid-cols-3 gap-4">
+            {([
+              { label: 'Veloce',  data: rotStats.veloce },
+              { label: 'Media',   data: rotStats.media  },
+              { label: 'Lenta',   data: rotStats.lenta  },
+            ] as const).map(({ label, data }) => (
+              <div key={label} className="text-center p-3 bg-slate-50 rounded-lg">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+                <p className="text-2xl font-bold text-slate-800 tabular-nums">{data.count}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{(data.pct * 100).toFixed(1)}% del fatturato</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Commento AI ─────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+            <MessageSquareText className="w-4 h-4 text-violet-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-slate-800">Commento AI — Matrice ABC</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
+          </div>
+          {aiComment && !aiLoading && (
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(aiComment).then(() => {
+                  setAiCopied(true);
+                  setTimeout(() => setAiCopied(false), 2000);
+                });
+              }}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors flex-shrink-0"
+              title="Copia testo"
+            >
+              {aiCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              {aiCopied ? 'Copiato' : 'Copia'}
+            </button>
+          )}
+        </div>
+        <div className="flex-1 min-h-[100px]">
+          {aiLoading && (
+            <div className="space-y-2.5 animate-pulse">
+              {[100, 90, 96, 80, 88].map((w, i) => (
+                <div key={i} className="h-2.5 bg-slate-200 rounded" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          )}
+          {aiError && !aiLoading && (
+            <div className="flex items-center gap-2 text-amber-500 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{aiError}</span>
+            </div>
+          )}
+          {aiComment && !aiLoading && (
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+              {aiComment}
+            </p>
+          )}
+        </div>
+        <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
+          {([
+            { label: 'Health Score', v: `${health.total}/100` },
+            { label: 'Margine medio', v: fmtPct(weightedMargin) },
+            { label: 'Fatturato a rischio', v: fmtPct(riskRevenuePct) },
+          ]).map(({ label, v }) => (
+            <div key={label} className="text-center">
+              <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+              <p className="text-sm font-bold tabular-nums text-slate-700">{v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── Health Score + What-If ───────────────────────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-6">
 
@@ -1018,94 +1069,6 @@ export default function ABCMatrix() {
         </div>
       </div>
 
-      {/* ── Heatmap per Codice Articolo (prodotti only) ───────────────────── */}
-      {activeTab !== 'categorie' && <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500">Heatmap per Codice Articolo</h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Filtra per cella ABC e ispeziona i singoli articoli raggruppati per categoria.</p>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setExpandedCats(new Set(heatmapFiltered.map(c => c.cat)))} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Espandi tutto</button>
-            <button onClick={() => setExpandedCats(new Set())} className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 border border-slate-200 rounded">Comprimi</button>
-          </div>
-        </div>
-
-        {/* Filter grid */}
-        <div className="grid grid-cols-3 gap-2">
-          {MATRIX_ORDER.map(key => {
-            const cell = matrix[key];
-            const s = SEG_STYLE[key];
-            const active = heatmapFilter === key;
-            return (
-              <button key={key}
-                onClick={() => setHeatmapFilter(active ? null : key)}
-                disabled={cell.count === 0}
-                className={`border rounded-xl p-3 text-left transition-all ${
-                  cell.count === 0 ? 'opacity-30 cursor-not-allowed border-slate-100' :
-                  active ? 'border-blue-400 ring-2 ring-blue-200' : `${s.bg} ${s.border} hover:shadow-sm`
-                }`}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <SegmentBadge seg={key} />
-                  <span className="text-xs font-semibold text-slate-700 ml-auto tabular-nums">{cell.count}</span>
-                </div>
-                <p className="text-xs font-medium text-slate-700">{SEGMENTS[key].label}</p>
-                <p className="text-[11px] text-slate-500 tabular-nums">{fmtK(cell.revenue)}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cerca articolo o categoria…"
-            value={heatSearch}
-            onChange={e => setHeatSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-400 bg-slate-50"
-          />
-        </div>
-
-        {/* Category list */}
-        <div className="space-y-1.5">
-          {heatmapFiltered.map(({ cat, prods, totalRevenue: catTotalRev }) => {
-            const isOpen = expandedCats.has(cat);
-
-            return (
-              <div key={cat} className="border border-slate-200 rounded-lg overflow-hidden">
-                <button
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
-                  onClick={() => {
-                    const next = new Set(expandedCats);
-                    if (isOpen) next.delete(cat); else next.add(cat);
-                    setExpandedCats(next);
-                  }}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-0' : '-rotate-90'}`} />
-                    <span className="text-sm font-medium text-slate-700">{cat}</span>
-                    <span className="text-xs text-slate-400">({prods.length})</span>
-                  </div>
-                  <span className="text-sm font-semibold text-slate-600 tabular-nums">{fmtK(catTotalRev)}</span>
-                </button>
-                {isOpen && (
-                  <div className="px-4 pb-4 border-t border-slate-100">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 pt-3">
-                      {prods.map(p => <ProductCard key={p.id} p={p} />)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {heatmapFiltered.length === 0 && (
-            <div className="text-center py-8 text-slate-400 text-sm">Nessun risultato</div>
-          )}
-        </div>
-      </div>}
-
       {/* ── Alert Automatici ─────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-center justify-between mb-4">
@@ -1211,97 +1174,6 @@ export default function ABCMatrix() {
         </div>
       </div>
 
-      {/* ── Commento AI + Nota Consulente ────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pb-8">
-
-        {/* AI comment */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-              <MessageSquareText className="w-4 h-4 text-violet-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-slate-800">Commento AI — Matrice ABC</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
-            </div>
-            {aiComment && !aiLoading && (
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(aiComment).then(() => {
-                    setAiCopied(true);
-                    setTimeout(() => setAiCopied(false), 2000);
-                  });
-                }}
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors flex-shrink-0"
-                title="Copia testo"
-              >
-                {aiCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                {aiCopied ? 'Copiato' : 'Copia'}
-              </button>
-            )}
-          </div>
-          <div className="flex-1 min-h-[100px]">
-            {aiLoading && (
-              <div className="space-y-2.5 animate-pulse">
-                {[100, 90, 96, 80, 88].map((w, i) => (
-                  <div key={i} className="h-2.5 bg-slate-200 rounded" style={{ width: `${w}%` }} />
-                ))}
-              </div>
-            )}
-            {aiError && !aiLoading && (
-              <div className="flex items-center gap-2 text-amber-500 text-sm">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{aiError}</span>
-              </div>
-            )}
-            {aiComment && !aiLoading && (
-              <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">
-                {aiComment}
-              </p>
-            )}
-          </div>
-          <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-3 gap-3">
-            {([
-              { label: 'Health Score', v: `${health.total}/100` },
-              { label: 'Margine medio', v: fmtPct(weightedMargin) },
-              { label: 'Fatturato a rischio', v: fmtPct(riskRevenuePct) },
-            ]).map(({ label, v }) => (
-              <div key={label} className="text-center">
-                <p className="text-[10px] text-slate-400 mb-1">{label}</p>
-                <p className="text-sm font-bold tabular-nums text-slate-700">{v}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Consultant note */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-              <PenLine className="w-4 h-4 text-slate-500" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Note</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'analisi corrente</p>
-            </div>
-          </div>
-          <textarea
-            value={consultantNote}
-            onChange={e => {
-              setConsultantNote(e.target.value);
-              localStorage.setItem(noteKey, e.target.value);
-            }}
-            placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
-            className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
-          />
-          <div className="flex items-center justify-between mt-3">
-            <p className="text-[10px] text-slate-400">Salvato automaticamente nel browser</p>
-            {consultantNote && (
-              <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
-            )}
-          </div>
-        </div>
-      </div>
 
     </div>
   );

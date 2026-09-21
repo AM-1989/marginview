@@ -36,7 +36,6 @@ export interface ABCMatrixPDFProps {
   enrichedActions: EnrichedAction[];
   totalImpact:    number;
   aiComment:      string | null;
-  consultantNote: string;
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -98,9 +97,6 @@ const S = StyleSheet.create({
   aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
   aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
   aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
-  noteBlock: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
-  noteTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.dark, marginBottom: 6 },
-  noteText:  { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -149,7 +145,7 @@ function PdfFooter() {
 export default function ABCMatrixPDF({
   products, totalRevenue, totalProfit, weightedMargin,
   gini, paretoIndex, starRevenuePct, riskRevenuePct, belowAvgCount,
-  matrix, health, enrichedActions, totalImpact, aiComment, consultantNote,
+  matrix, health, enrichedActions, totalImpact, aiComment,
 }: ABCMatrixPDFProps) {
 
   const SEGS: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
@@ -289,12 +285,33 @@ export default function ABCMatrixPDF({
             </View>
 
           </View>
+
+          {/* AI comment — below matrix on Page 1 */}
+          {aiComment && (
+            <View style={[S.aiBlock, { marginTop: 14 }]}>
+              <Text style={S.aiTitle}>Commento AI — Matrice ABC</Text>
+              <Text style={S.aiText}>{aiComment}</Text>
+              <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
+                {([
+                  { label: 'Health Score',   v: `${health.total}/100` },
+                  { label: 'Margine Medio',  v: fmtPct(weightedMargin) },
+                  { label: 'Fatt. Rischio',  v: fmtPct(riskRevenuePct) },
+                ]).map(({ label, v }) => (
+                  <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
+                    <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
         </View>
 
         <PdfFooter />
       </Page>
 
-      {/* ── PAGE 2: Action Items + Products + Comments ─────────────────────── */}
+      {/* ── PAGE 2: Action Items + Products ────────────────────────────────── */}
       <Page size="A4" style={base.page}>
         <PdfHeader subtitle="Matrice ABC" />
 
@@ -366,38 +383,6 @@ export default function ABCMatrixPDF({
             </Text>
           )}
 
-          {/* Comments */}
-          {(aiComment || consultantNote) && (
-            <>
-              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi e Note</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                {aiComment && (
-                  <View style={[S.aiBlock, { flex: 1 }]}>
-                    <Text style={S.aiTitle}>Commento AI — Matrice ABC</Text>
-                    <Text style={S.aiText}>{aiComment}</Text>
-                    <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
-                      {([
-                        { label: 'Health Score', v: `${health.total}/100` },
-                        { label: 'Margine Medio', v: fmtPct(weightedMargin) },
-                        { label: 'Fatt. Rischio', v: fmtPct(riskRevenuePct) },
-                      ]).map(({ label, v }) => (
-                        <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
-                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
-                {consultantNote && (
-                  <View style={[S.noteBlock, { flex: 1 }]}>
-                    <Text style={S.noteTitle}>Note</Text>
-                    <Text style={S.noteText}>{consultantNote}</Text>
-                  </View>
-                )}
-              </View>
-            </>
-          )}
 
         </View>
 

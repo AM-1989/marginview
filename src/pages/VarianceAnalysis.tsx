@@ -9,7 +9,7 @@ import {
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
   CheckCircle2, TrendingUp, ChevronDown, ChevronRight,
-  RotateCcw, X, Info, MessageSquareText, PenLine,
+  RotateCcw, X, Info, MessageSquareText,
 } from 'lucide-react';
 import { downloadPDF } from '../lib/exportPDF';
 import VariancePDF from '../lib/pdf/VariancePDF';
@@ -99,7 +99,7 @@ function WfTooltip({ active, payload }: { active?: boolean; payload?: { payload?
     <div className="bg-white border border-slate-200 shadow-xl rounded-xl p-3 text-xs min-w-44">
       <p className="font-semibold text-slate-800 mb-1.5">{pt.name}</p>
       <p className={pt.isTotal ? 'text-blue-600 font-bold' : pt.rawValue >= 0 ? 'text-emerald-600 font-bold' : 'text-red-500 font-bold'}>
-        {pt.isTotal ? fmtEur.format(pt.rawValue) : `${pt.rawValue >= 0 ? '+' : ''}${pt.rawValue.toFixed(2)}`}
+        {pt.isTotal ? `${pt.rawValue.toFixed(2)}%` : `${pt.rawValue >= 0 ? '+' : ''}${pt.rawValue.toFixed(2)}%`}
       </p>
     </div>
   );
@@ -246,7 +246,7 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 // ─── Bridge table Excel export ────────────────────────────────────────────────
 
-function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[]) {
+function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p1Label: string, p2Label: string) {
   const fmtPP  = (v: number) => !isFinite(v) || Math.abs(v) < 5e-5 ? '0,00%' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
   const fmtPV  = (v: number | null) => v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
 
@@ -333,7 +333,20 @@ function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[]) {
     effects.effVolume, md.canale, md.brand, md.categoria, md.sottocategoria, md.formato + md.residuo, effects.effPrezzo, effects.effCosto);
 
   const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(rows);
+
+  const headers = Object.keys(rows[0] ?? {});
+  const wsData: unknown[][] = [
+    [`Analisi Varianza Margine — Effetti sul Bridge`],
+    [`${p1Label} → ${p2Label}  ·  ${rows.length} righe`],
+    headers,
+    ...rows.map(r => headers.map(h => r[h])),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [
+    { wch: 14 }, { wch: 40 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+    { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+  ];
+
   XLSX.utils.book_append_sheet(wb, ws, 'Bridge');
   XLSX.writeFile(wb, 'varianza-bridge.xlsx');
 }
@@ -755,8 +768,6 @@ export default function VarianceAnalysis() {
   const [aiComment, setAiComment]       = useState<string | null>(null);
   const [aiLoading, setAiLoading]       = useState(false);
   const [aiError, setAiError]           = useState<string | null>(null);
-  const [consultantNote, setConsultantNote] = useState('');
-
   // ── Derived ─────────────────────────────────────────────────────────────────
   const periods     = useMemo(() => rows ? extractPeriods(rows) : [], [rows]);
   const filterOpts  = useMemo(() => rows ? extractFilterOptions(rows) : null, [rows]);
@@ -798,16 +809,7 @@ export default function VarianceAnalysis() {
     return cats.filter(c => c.deltaMarginPct !== null);
   }, [effects]);
 
-  // ── AI comment: chiave localStorage + chiamata API ───────────────────────────
-  const noteKey = useMemo(
-    () => `marginview_variance_note_${[...p1Keys].sort().join(',')}_vs_${[...p2Keys].sort().join(',')}`,
-    [p1Keys, p2Keys],
-  );
-
-  useEffect(() => {
-    setConsultantNote(localStorage.getItem(noteKey) ?? '');
-  }, [noteKey]);
-
+  // ── AI comment ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!effects) {
       setAiComment(null);
@@ -973,7 +975,7 @@ export default function VarianceAnalysis() {
           {canShowResults && effects && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => exportBridgeToExcel(effects, effects.lines)}
+                onClick={() => exportBridgeToExcel(effects, effects.lines, p1Keys.join(', '), p2Keys.join(', '))}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
               >
                 <FileDown className="w-4 h-4" /> Esporta Excel
@@ -989,7 +991,6 @@ export default function VarianceAnalysis() {
                         p1Label={p1Keys.join(', ')}
                         p2Label={p2Keys.join(', ')}
                         aiComment={aiComment}
-                        consultantNote={consultantNote}
                       />,
                       'varianza-margini.pdf',
                     );
@@ -1336,33 +1337,6 @@ export default function VarianceAnalysis() {
               </div>
             )}
 
-            {/* ── Note ──────────────────────────────────────────────────────────── */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col pb-8">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-                  <PenLine className="w-4 h-4 text-slate-500" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">Note</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per il periodo selezionato</p>
-                </div>
-              </div>
-              <textarea
-                value={consultantNote}
-                onChange={e => {
-                  setConsultantNote(e.target.value);
-                  localStorage.setItem(noteKey, e.target.value);
-                }}
-                placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
-                className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
-              />
-              <div className="flex items-center justify-between mt-3">
-                <p className="text-[10px] text-slate-400">Salvato automaticamente per questo periodo</p>
-                {consultantNote && (
-                  <p className="text-[11px] text-slate-400 tabular-nums">{consultantNote.length} car.</p>
-                )}
-              </div>
-            </div>
           </>
         )}
 

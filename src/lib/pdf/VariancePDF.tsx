@@ -8,7 +8,6 @@ export interface VariancePDFProps {
   p1Label:        string;
   p2Label:        string;
   aiComment:      string | null;
-  consultantNote: string;
 }
 
 // ── Local formatters (effects are decimal: 0.023 = 2.3 pp) ──────────────────
@@ -74,9 +73,6 @@ const S = StyleSheet.create({
   aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
   aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
   aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
-  noteBlock: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
-  noteTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.dark, marginBottom: 6 },
-  noteText:  { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
 });
 
 // ── Shared header ────────────────────────────────────────────────────────────
@@ -162,7 +158,7 @@ function DriverTable({ lines, title }: { lines: ComparedLine[]; title: string })
 
 // ── Main document ────────────────────────────────────────────────────────────
 
-export default function VariancePDF({ effects, p1Label, p2Label, aiComment, consultantNote }: VariancePDFProps) {
+export default function VariancePDF({ effects, p1Label, p2Label, aiComment }: VariancePDFProps) {
   const delta  = effects.marginPctP2 - effects.marginPctP1;
   const md     = effects.mixDecomposition;
   const maxAbs = Math.max(
@@ -411,23 +407,13 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
             </View>
           </View>
 
-          {/* AI comment + consultant note */}
-          {(aiComment || consultantNote) && (
+          {/* AI comment */}
+          {aiComment && (
             <>
-              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi e Note</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                {aiComment && (
-                  <View style={[S.aiBlock, { flex: 1 }]}>
-                    <Text style={S.aiTitle}>Commento AI — Varianza Marginalità</Text>
-                    <Text style={S.aiText}>{aiComment}</Text>
-                  </View>
-                )}
-                {consultantNote && (
-                  <View style={[S.noteBlock, { flex: 1 }]}>
-                    <Text style={S.noteTitle}>Note</Text>
-                    <Text style={S.noteText}>{consultantNote}</Text>
-                  </View>
-                )}
+              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi</Text>
+              <View style={[S.aiBlock]}>
+                <Text style={S.aiTitle}>Commento AI — Varianza Marginalità</Text>
+                <Text style={S.aiText}>{aiComment}</Text>
               </View>
             </>
           )}

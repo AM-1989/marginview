@@ -4,7 +4,7 @@ import {
   Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-  TrendingUp, Building2, MessageSquareText, PenLine, AlertTriangle,
+  TrendingUp, Building2, MessageSquareText, AlertTriangle,
   FileDown, Plus, Trash2, Activity, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -166,19 +166,11 @@ export default function BalanceAnalysis() {
   const [aiComment, setAiComment]   = useState<string | null>(null);
   const [aiLoading, setAiLoading]   = useState(false);
   const [aiError, setAiError]       = useState<string | null>(null);
-  const [userNote, setUserNote]     = useState('');
-
   const kpis: BalanceKPI[] = useMemo(() => years.map(y => calculateBalanceKPIs(y)), [years]);
 
   const selKpi   = kpis[dashYear];
   const selInput = years[dashYear];
   const prevKpi  = dashYear > 0 ? kpis[dashYear - 1] : null;
-
-  const noteKey = `marginview_balance_note_${selInput?.anno}`;
-
-  useEffect(() => {
-    setUserNote(localStorage.getItem(noteKey) ?? '');
-  }, [noteKey]);
 
   useEffect(() => {
     if (!selKpi) return;
@@ -292,7 +284,6 @@ export default function BalanceAnalysis() {
                     selKpi={selKpi}
                     selInput={selInput}
                     aiComment={aiComment}
-                    consultantNote={userNote}
                   />,
                   `bilancio-${selKpi.anno}.pdf`,
                 );
@@ -516,31 +507,6 @@ export default function BalanceAnalysis() {
             </div>
           </div>
 
-          {/* Note */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col pb-8">
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0">
-                <PenLine className="w-4 h-4 text-slate-500" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800">Note</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Considerazioni per l'anno {selInput.anno}</p>
-              </div>
-            </div>
-            <textarea
-              value={userNote}
-              onChange={e => {
-                setUserNote(e.target.value);
-                localStorage.setItem(noteKey, e.target.value);
-              }}
-              placeholder="Inserisci osservazioni, obiettivi o piani d'azione..."
-              className="flex-1 resize-none rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 leading-relaxed placeholder:text-slate-300 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all min-h-40"
-            />
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-[10px] text-slate-400">Salvato automaticamente per questo anno</p>
-              {userNote && <p className="text-[11px] text-slate-400 tabular-nums">{userNote.length} car.</p>}
-            </div>
-          </div>
         </div>
       )}
 

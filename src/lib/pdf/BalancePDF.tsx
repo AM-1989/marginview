@@ -8,7 +8,6 @@ export interface BalancePDFProps {
   selKpi:         BalanceKPI;
   selInput:       BalanceInputYear;
   aiComment:      string | null;
-  consultantNote: string;
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -50,9 +49,6 @@ const S = StyleSheet.create({
   aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
   aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
   aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
-  noteBlock: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
-  noteTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.dark, marginBottom: 6 },
-  noteText:  { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,7 +105,7 @@ function PdfFooter({ anno }: { anno: number }) {
 
 // ── Main document ─────────────────────────────────────────────────────────────
 
-export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consultantNote }: BalancePDFProps) {
+export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: BalancePDFProps) {
   const anno = selKpi.anno;
 
   const trendKpis: { label: string; key: keyof BalanceKPI; fmt: (v: number) => string }[] = [
@@ -306,35 +302,25 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment, consulta
             ))}
           </View>
 
-          {/* Comments */}
-          {(aiComment || consultantNote) && (
+          {/* AI comment */}
+          {aiComment && (
             <>
-              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi e Note</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                {aiComment && (
-                  <View style={[S.aiBlock, { flex: 1 }]}>
-                    <Text style={S.aiTitle}>Commento AI — Bilancio {anno}</Text>
-                    <Text style={S.aiText}>{aiComment}</Text>
-                    <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
-                      {([
-                        { label: 'EBITDA %',   v: fmtPct(selKpi.ebitdaPerc) },
-                        { label: 'ROE',        v: fmtPct(selKpi.roe) },
-                        { label: 'PFN/EBITDA', v: fmtX(selKpi.pfnEbitda) },
-                      ]).map(({ label, v }) => (
-                        <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                          <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
-                          <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
-                        </View>
-                      ))}
+              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi</Text>
+              <View style={[S.aiBlock]}>
+                <Text style={S.aiTitle}>Commento AI — Bilancio {anno}</Text>
+                <Text style={S.aiText}>{aiComment}</Text>
+                <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
+                  {([
+                    { label: 'EBITDA %',   v: fmtPct(selKpi.ebitdaPerc) },
+                    { label: 'ROE',        v: fmtPct(selKpi.roe) },
+                    { label: 'PFN/EBITDA', v: fmtX(selKpi.pfnEbitda) },
+                  ]).map(({ label, v }) => (
+                    <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
+                      <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
                     </View>
-                  </View>
-                )}
-                {consultantNote && (
-                  <View style={[S.noteBlock, { flex: 1 }]}>
-                    <Text style={S.noteTitle}>Note</Text>
-                    <Text style={S.noteText}>{consultantNote}</Text>
-                  </View>
-                )}
+                  ))}
+                </View>
               </View>
             </>
           )}
