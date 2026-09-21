@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, StyleSheet, Svg, Rect } from '@react-pdf/renderer';
-import type { ClassifiedRow, SegmentKey } from '../abcMatrixCalc';
+import type { ClassifiedRow, SegmentKey, RotazioneRating } from '../abcMatrixCalc';
 import { SEGMENTS } from '../abcMatrixCalc';
 import { C, SEG_FILL, SEG_BG, base, fmtEur, fmtPct, today } from './pdfTheme';
 
@@ -153,8 +153,29 @@ export default function ABCMatrixPDF({
 }: ABCMatrixPDFProps) {
 
   const SEGS: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
+  const SEGMENT_ORDER: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
   const classARevenue = (['AA','AB','AC'] as SegmentKey[]).reduce((s, k) => s + (matrix[k]?.revenue ?? 0), 0);
   const top15 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 15);
+
+  // Giacenza section — only when data is present
+  const hasGiacenza = products.some(p => p.giacenza !== undefined);
+  const giacenzaProducts = hasGiacenza
+    ? [...products]
+        .filter(p => p.giacenza !== undefined)
+        .sort((a, b) => {
+          const si = SEGMENT_ORDER.indexOf(a.segment) - SEGMENT_ORDER.indexOf(b.segment);
+          return si !== 0 ? si : b.revenue - a.revenue;
+        })
+    : [];
+
+  const rotLabel = (r?: RotazioneRating) => {
+    if (r === 'A') return 'A · veloce';
+    if (r === 'B') return 'B · media';
+    if (r === 'C') return 'C · lenta';
+    return '-';
+  };
+  const rotClr = (r?: RotazioneRating) =>
+    r === 'A' ? C.emerald : r === 'C' ? C.red : r === 'B' ? C.amber : C.slate5;
 
   return (
     <Document>
@@ -321,20 +342,22 @@ export default function ABCMatrixPDF({
           {/* Top Products Table */}
           <Text style={base.sectionLabel}>Top {top15.length} Prodotti per Fatturato</Text>
           <View style={S.tblHead}>
-            {([['22%','Codice'],['30%','Descrizione'],['16%','Fatturato'],['11%','Marg %'],['14%','Profitto'],['7%','Seg']] as [string,string][]).map(([w, h]) => (
+            {([['22%','Codice'],['29%','Descrizione'],['16%','Fatturato'],['11%','Marg %'],['13%','Profitto'],['9%','Rating']] as [string,string][]).map(([w, h]) => (
               <Text key={h} style={[S.tblHCell, { width: w }]}>{h}</Text>
             ))}
           </View>
           {top15.map((p, i) => (
-            <View key={p.id} style={i % 2 === 0 ? S.tblRow : S.tblAlt}>
-              <Text style={[S.tblCell, { width: '22%', color: C.slate4 }]}>{p.id}</Text>
-              <Text style={[S.tblCell, { width: '30%' }]}>{p.name}</Text>
+            <View key={p.id || i} style={i % 2 === 0 ? S.tblRow : S.tblAlt}>
+              <Text style={[S.tblCell, { width: '22%', color: C.slate4 }]}>{p.id || '-'}</Text>
+              <Text style={[S.tblCell, { width: '29%' }]}>{p.name || '-'}</Text>
               <Text style={[S.tblCell, { width: '16%', textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtEur(p.revenue)}</Text>
               <Text style={[S.tblCell, { width: '11%', textAlign: 'right', fontFamily: 'Helvetica-Bold', color: p.marginPct >= weightedMargin ? C.emerald : C.red }]}>
                 {fmtPct(p.marginPct)}
               </Text>
-              <Text style={[S.tblCell, { width: '14%', textAlign: 'right', color: p.profit >= 0 ? C.emerald : C.red }]}>{fmtEur(p.profit)}</Text>
-              <Text style={[S.tblCell, { width: '7%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: SEG_FILL[p.segment] }]}>{p.segment}</Text>
+              <Text style={[S.tblCell, { width: '13%', textAlign: 'right', color: p.profit >= 0 ? C.emerald : C.red }]}>{fmtEur(p.profit)}</Text>
+              <Text style={[S.tblCell, { width: '9%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: SEG_FILL[p.segment] }]}>
+                {p.ratingComplessivo ?? p.segment}
+              </Text>
             </View>
           ))}
           {products.length > 15 && (
@@ -380,6 +403,69 @@ export default function ABCMatrixPDF({
 
         <PdfFooter />
       </Page>
+
+      {/* ── PAGE 3: Dettaglio giacenza e rotazione (solo se dati presenti) ─── */}
+      {hasGiacenza && (
+        <Page size="A4" style={base.page}>
+          <PdfHeader subtitle="Dettaglio Giacenza e Rotazione" />
+
+          <View style={base.body}>
+            <Text style={base.sectionLabel}>
+              Dettaglio giacenza e rotazione · {giacenzaProducts.length} prodotti con dati di magazzino
+            </Text>
+
+            {/* Table header */}
+            <View style={S.tblHead}>
+              {([
+                ['14%', 'Codice'],
+                ['21%', 'Descrizione'],
+                ['13%', 'Categoria'],
+                ['10%', 'Brand'],
+                ['12%', 'Giacenza (€)'],
+                ['10%', 'Giorni'],
+                ['12%', 'Rotazione'],
+                ['8%',  'Rating'],
+              ] as [string, string][]).map(([w, h]) => (
+                <Text key={h} style={[S.tblHCell, { width: w }]}>{h}</Text>
+              ))}
+            </View>
+
+            {/* Data rows */}
+            {giacenzaProducts.map((p, i) => (
+              <View key={p.id || i} style={i % 2 === 0 ? S.tblRow : S.tblAlt} wrap={false}>
+                <Text style={[S.tblCell, { width: '14%', color: C.slate4 }]}>{p.id || '-'}</Text>
+                <Text style={[S.tblCell, { width: '21%' }]}>{p.name || '-'}</Text>
+                <Text style={[S.tblCell, { width: '13%', color: C.slate5 }]}>{p.category || '-'}</Text>
+                <Text style={[S.tblCell, { width: '10%', color: C.slate5 }]}>{p.brand || '-'}</Text>
+                <Text style={[S.tblCell, { width: '12%', textAlign: 'right' }]}>
+                  {p.giacenza !== undefined ? fmtEur(p.giacenza) : '-'}
+                </Text>
+                <Text style={[S.tblCell, { width: '10%', textAlign: 'right' }]}>
+                  {p.giorniGiacenza !== undefined ? `${Math.round(p.giorniGiacenza)} gg` : '-'}
+                </Text>
+                <Text style={[S.tblCell, { width: '12%', textAlign: 'center', color: rotClr(p.ratingRotazione) }]}>
+                  {rotLabel(p.ratingRotazione)}
+                </Text>
+                <Text style={[S.tblCell, { width: '8%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: SEG_FILL[p.segment] }]}>
+                  {p.ratingComplessivo ?? p.segment}
+                </Text>
+              </View>
+            ))}
+
+            {/* Note legenda rotazione */}
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.slate2 }}>
+              <Text style={{ fontSize: 6, color: C.slate4 }}>
+                Rotazione: A · veloce = giorni di giacenza &lt; soglia A &nbsp;|&nbsp; B · media = tra soglia A e C &nbsp;|&nbsp; C · lenta = giorni di giacenza ≥ soglia C
+              </Text>
+              <Text style={{ fontSize: 6, color: C.slate4, marginTop: 3 }}>
+                Rating complessivo = Rating Fatturato × Rating Margine × Rating Rotazione (es. AAA = ottimo su tutti e tre gli assi)
+              </Text>
+            </View>
+          </View>
+
+          <PdfFooter />
+        </Page>
+      )}
 
     </Document>
   );

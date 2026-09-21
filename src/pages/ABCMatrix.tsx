@@ -10,7 +10,7 @@ import {
   Zap, Sparkles, AlertTriangle,
   ChevronDown, Loader2, DollarSign, Shield,
   Minus, Eye, Search, AlertCircle, Layers,
-  MessageSquareText, PenLine,
+  MessageSquareText, PenLine, Copy, Check,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { downloadPDF } from '../lib/exportPDF';
@@ -135,6 +135,7 @@ export default function ABCMatrix() {
   const uploadInputRef  = useRef<HTMLInputElement>(null);
   const mainInputRef    = useRef<HTMLInputElement>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [aiCopied, setAiCopied]         = useState(false);
   const [catThresholds, setCatThresholds] = useState<Record<string, { on: boolean; a: number; c: number }>>({});
   const [showCatThresholds, setShowCatThresholds] = useState(false);
 
@@ -384,17 +385,17 @@ export default function ABCMatrix() {
       if (r.ratingRotazione === 'A') return 'A · veloce';
       if (r.ratingRotazione === 'B') return 'B · media';
       if (r.ratingRotazione === 'C') return 'C · lenta';
-      return '';
+      return '-';
     };
 
     const exportRows = sorted.map(p => {
       const row: Record<string, string | number> = {
-        'Codice':                p.id,
-        'Descrizione':           p.name,
-        'Brand':                 p.brand,
-        'Categoria':             p.category,
+        'Codice':                p.id      || '-',
+        'Descrizione':           p.name    || '-',
+        'Brand':                 p.brand   || '-',
+        'Categoria':             p.category || '-',
         'Fatturato':             p.revenue,
-        'Margine %':             p.marginPct / 100,   // decimal fraction (0.137), matches Alessio's format
+        'Margine %':             p.marginPct / 100,   // decimal fraction → formattato 0.0% da SheetJS
         'Margine (€)':           p.profit,
         'Rating Fatturato':      p.ratingRevenue,
         'Rating Margine':        p.ratingMargin,
@@ -402,9 +403,9 @@ export default function ABCMatrix() {
       };
       if (hasGiacenza) {
         row['Rating Rotazione']        = rotLabel(p);
-        row['Giacenza magazzino (€)']  = p.giacenza ?? '';
-        row['Giorni di Giacenza']      = p.giorniGiacenza !== undefined ? +p.giorniGiacenza.toFixed(0) : '';
-        row['Rating complessivo']      = p.ratingComplessivo ?? '';
+        row['Giacenza magazzino (€)']  = p.giacenza    ?? '-';
+        row['Giorni di Giacenza']      = p.giorniGiacenza !== undefined ? +p.giorniGiacenza.toFixed(0) : '-';
+        row['Rating complessivo']      = p.ratingComplessivo ?? '-';
       } else {
         row['Rating complessivo']      = `${p.ratingRevenue}${p.ratingMargin}`;
       }
@@ -422,6 +423,13 @@ export default function ABCMatrix() {
       ...exportRows.map(r => Object.values(r)),
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Apply percentage format to the Margine % column (col index 5 = F), data starts at row index 3
+    for (let i = 0; i < sorted.length; i++) {
+      const ref = XLSX.utils.encode_cell({ r: 3 + i, c: 5 });
+      if (ws[ref]) ws[ref].z = '0.0%';
+    }
+
     XLSX.utils.book_append_sheet(wb, ws, 'Tutti i codici');
     XLSX.writeFile(wb, 'analisi-abc.xlsx');
   }
@@ -1212,10 +1220,25 @@ export default function ABCMatrix() {
             <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
               <MessageSquareText className="w-4 h-4 text-violet-600" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-slate-800">Commento AI — Matrice ABC</p>
               <p className="text-[11px] text-slate-400 mt-0.5">Generato in tempo reale dai KPI calcolati</p>
             </div>
+            {aiComment && !aiLoading && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(aiComment).then(() => {
+                    setAiCopied(true);
+                    setTimeout(() => setAiCopied(false), 2000);
+                  });
+                }}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-700 transition-colors flex-shrink-0"
+                title="Copia testo"
+              >
+                {aiCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                {aiCopied ? 'Copiato' : 'Copia'}
+              </button>
+            )}
           </div>
           <div className="flex-1 min-h-[100px]">
             {aiLoading && (

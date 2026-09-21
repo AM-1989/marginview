@@ -841,7 +841,7 @@ function buildCategoryWaterfall(
 ): WaterfallPoint[] {
   const catContrib = new Map<string, number>();
   for (const l of lines) {
-    const cat = l.categoria || l.brand || 'N/D';
+    const cat = l.categoria || l.brand || '-';
     catContrib.set(cat, (catContrib.get(cat) ?? 0) + (getV2(l) - getV1(l)));
   }
 

@@ -730,13 +730,51 @@ function buildBilancioPrompt(data) {
 }
 
 function buildAbcPrompt(data) {
-  const { numReferenze, classACount, classASharePct, classCCount, criticalAC, margineGlobale, top3SharePct } = data;
-  const pct = v => `${Number(v).toFixed(1)}%`;
-  return [
-    `Analisi ABC — ${numReferenze} referenze:`,
-    `Classe A: ${classACount} ref. (${pct(classASharePct)} fatturato) | Classe C: ${classCCount} ref.`,
-    `Critici AC: ${criticalAC} | Top-3 share: ${pct(top3SharePct)} | Margine medio: ${pct(margineGlobale)}`,
+  const {
+    numReferenze, classACount, classASharePct, classCCount, criticalAC, margineGlobale, top3SharePct,
+    totalRevenue, totalProfit, gini, paretoIndex,
+    starRevenuePct, riskRevenuePct, healthScore,
+    matrixAA, matrixAB, matrixAC, matrixBA, matrixBB, matrixBC, matrixCA, matrixCB, matrixCC,
+    sogliaMargineA, sogliaMargineC, baseline,
+    topCategorie, prodottiInPerdita,
+    hasGiacenza, rotazioneVeloce, rotazioneMedia, rotazioneLenta, sogliRotazioneA, sogliRotazioneC,
+  } = data;
+  const pct = v => v != null && isFinite(Number(v)) ? `${Number(v).toFixed(1)}%` : '-';
+  const eur = v => v != null ? `€${Math.round(v).toLocaleString('it-IT')}` : '-';
+  const n   = v => v != null ? String(v) : '-';
+
+  const matrixBlock = [
+    `Matrice Fatturato×Margine (n. referenze per cella):`,
+    `  AA=${n(matrixAA)} AB=${n(matrixAB)} AC=${n(matrixAC)}`,
+    `  BA=${n(matrixBA)} BB=${n(matrixBB)} BC=${n(matrixBC)}`,
+    `  CA=${n(matrixCA)} CB=${n(matrixCB)} CC=${n(matrixCC)}`,
+    `  (A=alto, B=medio, C=basso — prima lettera=fatturato, seconda=margine)`,
   ].join('\n');
+
+  const catBlock = Array.isArray(topCategorie) && topCategorie.length > 0
+    ? 'Top categorie per fatturato:\n' + topCategorie.map(c => `  ${c.categoria}: ${eur(c.fatturato)} | margine ${c.margine}`).join('\n')
+    : null;
+
+  const rotBlock = hasGiacenza
+    ? [
+        `Giacenza magazzino: dati presenti.`,
+        `Rotazione — A·veloce (< ${n(sogliRotazioneA)}gg): ${n(rotazioneVeloce)} ref. | B·media: ${n(rotazioneMedia)} ref. | C·lenta (≥ ${n(sogliRotazioneC)}gg): ${n(rotazioneLenta)} ref.`,
+      ].join('\n')
+    : 'Giacenza magazzino: dati NON presenti — non commentare rotazione né giacenza.';
+
+  return [
+    `Analisi ABC — ${n(numReferenze)} referenze | Fatturato totale: ${eur(totalRevenue)} | Margine totale: ${eur(totalProfit)}`,
+    `Margine medio: ${pct(margineGlobale)} | Soglia A ≥ ${pct(sogliaMargineA)} | Soglia C < ${pct(sogliaMargineC)} | Baseline: ${baseline === 'categoria' ? 'per categoria' : 'aziendale'}`,
+    `Gini: ${n(gini)} | Pareto 80% a ${pct(paretoIndex)} referenze | Top-3 share: ${pct(top3SharePct)}`,
+    `Health score: ${n(healthScore)}/100 | Star products (fatturato): ${pct(starRevenuePct)} | Risk products: ${pct(riskRevenuePct)}`,
+    `Classe A: ${n(classACount)} ref. (${pct(classASharePct)} fatturato) | Classe C totale: ${n(classCCount)} ref. | AC critici (alto fatt./basso marg.): ${n(criticalAC)} | In perdita: ${n(prodottiInPerdita)}`,
+    '',
+    matrixBlock,
+    '',
+    catBlock,
+    '',
+    rotBlock,
+  ].filter(v => v != null).join('\n');
 }
 
 const PROMPT_BUILDERS = { varianza: buildVarianzaPrompt, bilancio: buildBilancioPrompt, abc: buildAbcPrompt };

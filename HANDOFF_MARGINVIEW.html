@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MarginView — Documento di Handoff</title>
+<style>
+  /* ── Reset & base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy:    #0f2540;
+    --navy2:   #1e3a5f;
+    --blue:    #2563eb;
+    --blue-lt: #dbeafe;
+    --green:   #059669;
+    --green-lt:#d1fae5;
+    --amber:   #d97706;
+    --amber-lt:#fef3c7;
+    --red:     #dc2626;
+    --red-lt:  #fee2e2;
+    --slate:   #475569;
+    --slate2:  #64748b;
+    --border:  #e2e8f0;
+    --bg:      #f8fafc;
+    --white:   #ffffff;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.55;
+    color: #1e293b;
+    background: var(--bg);
+  }
+
+  /* ── Page wrapper ── */
+  .page {
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--white);
+    box-shadow: 0 4px 32px rgba(0,0,0,.08);
+  }
+
+  /* ── Cover ── */
+  .cover {
+    background: var(--navy);
+    padding: 56px 56px 48px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: rgba(37,99,235,.18);
+  }
+  .cover-tag {
+    display: inline-block;
+    background: rgba(147,197,253,.15);
+    color: #93c5fd;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    margin-bottom: 14px;
+  }
+  .cover-subtitle {
+    color: #94a3b8;
+    font-size: 12pt;
+    margin-bottom: 36px;
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255,255,255,.1);
+  }
+  .cover-meta-item label {
+    display: block;
+    color: #64748b;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .cover-meta-item span {
+    color: #e2e8f0;
+    font-size: 9.5pt;
+    font-weight: 600;
+  }
+
+  /* ── Body content ── */
+  .content {
+    padding: 48px 56px 64px;
+  }
+
+  /* ── Section header ── */
+  .section {
+    margin-bottom: 40px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--navy);
+  }
+  .section-num {
+    width: 30px; height: 30px;
+    background: var(--navy);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 11pt;
+    font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 13pt;
+    font-weight: 800;
+    color: var(--navy);
+    letter-spacing: -.3px;
+  }
+
+  /* ── Typography ── */
+  p { margin-bottom: 10px; color: #334155; }
+  p:last-child { margin-bottom: 0; }
+  strong { color: #1e293b; font-weight: 700; }
+
+  /* ── Tables ── */
+  .tbl-wrap { overflow-x: auto; margin-bottom: 16px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+  thead tr {
+    background: var(--navy);
+    color: #fff;
+  }
+  thead th {
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 700;
+    font-size: 8pt;
+    letter-spacing: .4px;
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  td {
+    padding: 9px 12px;
+    vertical-align: top;
+    color: #334155;
+  }
+  td:first-child { font-weight: 600; color: #1e293b; white-space: nowrap; }
+  .td-code {
+    font-family: 'SF Mono', Menlo, Monaco, Consolas, monospace;
+    font-size: 8.5pt;
+    color: var(--blue);
+    background: var(--blue-lt);
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ── Callout boxes ── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 14px 0;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .callout-icon { font-size: 14pt; flex-shrink: 0; line-height: 1.3; }
+  .callout-body { flex: 1; }
+  .callout-body strong { display: block; margin-bottom: 4px; font-size: 9.5pt; }
+  .callout-body p, .callout-body li { font-size: 9pt; color: inherit; margin-bottom: 4px; }
+  .callout.warn  { background: var(--amber-lt); color: #92400e; border-left: 4px solid var(--amber); }
+  .callout.info  { background: var(--blue-lt);  color: #1e40af; border-left: 4px solid var(--blue); }
+  .callout.ok    { background: var(--green-lt); color: #065f46; border-left: 4px solid var(--green); }
+  .callout.crit  { background: var(--red-lt);   color: #991b1b; border-left: 4px solid var(--red); }
+
+  /* ── Checklist ── */
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    display: flex;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 9pt;
+    color: #334155;
+    align-items: flex-start;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .check-box {
+    width: 16px; height: 16px;
+    border: 2px solid #cbd5e1;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .check-num {
+    width: 20px; height: 20px;
+    background: var(--navy);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 7.5pt;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* ── Guide steps (Brevo) ── */
+  .guide-steps { list-style: none; padding: 0; counter-reset: step; }
+  .guide-step {
+    counter-increment: step;
+    display: flex;
+    gap: 12px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+  }
+  .guide-step::before {
+    content: counter(step);
+    width: 22px; height: 22px;
+    background: var(--blue);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 8pt;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .guide-step p { margin: 0; font-size: 9pt; }
+  .guide-step code {
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 8pt;
+    background: var(--blue-lt);
+    color: var(--blue);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* ── Badge pills ── */
+  .badge {
+    display: inline-block;
+    font-size: 7.5pt;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+  }
+  .badge-ok    { background: var(--green-lt); color: #065f46; }
+  .badge-warn  { background: var(--amber-lt); color: #92400e; }
+  .badge-todo  { background: #f1f5f9; color: var(--slate); }
+  .badge-pend  { background: #ede9fe; color: #5b21b6; }
+
+  /* ── Divider ── */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* ── Footer ── */
+  .footer {
+    background: var(--navy);
+    padding: 20px 56px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer p { color: #64748b; font-size: 8pt; margin: 0; }
+  .footer-brand { color: #93c5fd; font-size: 8.5pt; font-weight: 700; letter-spacing: 2px; }
+
+  /* ── Print styles ── */
+  @media print {
+    body { background: white; font-size: 9pt; }
+    .page { max-width: none; box-shadow: none; }
+    .section { page-break-inside: avoid; }
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .callout { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .footer { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .td-code { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ══ COVER ════════════════════════════════════════════════════════════ -->
+  <div class="cover">
+    <div class="cover-tag">Documento di Handoff</div>
+    <h1>MarginView</h1>
+    <p class="cover-subtitle">Guida completa al progetto per Alessio Moro e futuri sviluppatori</p>
+    <div class="cover-meta">
+      <div class="cover-meta-item">
+        <label>Data</label>
+        <span>Settembre 2026</span>
+      </div>
+      <div class="cover-meta-item">
+        <label>Redatto da</label>
+        <span>Luca Pantea</span>
+      </div>
+      <div class="cover-meta-item">
+        <label>Repository</label>
+        <span>AM-1989/marginview</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CONTENT ══════════════════════════════════════════════════════════ -->
+  <div class="content">
+
+    <!-- 1 — COS'È MARGINVIEW -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">1</div>
+        <div class="section-title">Cos'è MarginView</div>
+      </div>
+      <p>MarginView è una web application di <strong>controllo di gestione</strong> costruita su misura. Permette di caricare dati aziendali tramite file Excel e ottenere analisi interattive, dashboard visive, report PDF e commenti automatici generati da intelligenza artificiale.</p>
+
+      <div class="tbl-wrap" style="margin-top:16px;">
+        <table>
+          <thead><tr>
+            <th>Modulo</th><th>Funzione principale</th><th>Output disponibili</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>Matrice ABC / Pareto</td>
+              <td>Classifica referenze per fatturato e marginalità (A/B/C), curva di Pareto, analisi rotazione magazzino</td>
+              <td>Dashboard, Export Excel, PDF, Commento AI</td>
+            </tr>
+            <tr>
+              <td>Analisi Varianza Marginalità</td>
+              <td>Confronta due periodi e scompone la variazione di margine in Effetto Volume, Mix, Prezzo e Costo</td>
+              <td>Waterfall, tabella pivot, Export Excel, PDF, Commento AI</td>
+            </tr>
+            <tr>
+              <td>Analisi di Bilancio</td>
+              <td>Calcola KPI da conto economico e stato patrimoniale su più anni (EBITDA, ROE, ROI, PFN, CCC, FCF)</td>
+              <td>Grafici trend, PDF, Commento AI</td>
+            </tr>
+            <tr>
+              <td>Dashboard</td>
+              <td>Panoramica sintetica con accesso rapido ai moduli</td>
+              <td>—</td>
+            </tr>
+            <tr>
+              <td>Impostazioni <em>(solo admin)</em></td>
+              <td>Gestione utenti, ruoli, permessi di accesso e di export</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 2 — ARCHITETTURA -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">2</div>
+        <div class="section-title">Architettura in parole semplici</div>
+      </div>
+      <p>Il sistema è composto da parti distinte che lavorano insieme. È importante capire le differenze per sapere dove intervenire.</p>
+
+      <div class="tbl-wrap" style="margin-top:16px;">
+        <table>
+          <thead><tr>
+            <th>Componente</th><th>A cosa serve</th><th>Dove vive / si modifica</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>Landing page pubblica<br><span class="td-code">marginview.it</span></td>
+              <td>Presentazione commerciale del prodotto. Non contiene l'app.</td>
+              <td>Piattaforma <strong>Lovable</strong>. Non è in questo repository. Si modifica solo dal pannello Lovable.</td>
+            </tr>
+            <tr>
+              <td>Applicazione web</td>
+              <td>L'app vera — login, analisi, dashboard, export.</td>
+              <td>Ospitata su <strong>Hostinger</strong>. I file vengono aggiornati via <code class="td-code">deploy.sh</code>.</td>
+            </tr>
+            <tr>
+              <td>Server API</td>
+              <td>Gestisce autenticazione OTP, commenti AI, invio email, utenti.</td>
+              <td>Stesso server Hostinger, porta <code class="td-code">5001</code>, gestito da <strong>PM2</strong>.</td>
+            </tr>
+            <tr>
+              <td>Database</td>
+              <td>Salva utenti, ruoli e sessioni di accesso.</td>
+              <td>File SQLite su Hostinger: <code class="td-code">/home/u976446016/databases/marginview.sqlite</code></td>
+            </tr>
+            <tr>
+              <td>Repository Git<br><span class="td-code">github.com/AM-1989/marginview</span></td>
+              <td>Archivio storico di tutto il codice sorgente (frontend + backend).</td>
+              <td>GitHub. Git serve a <em>versionare</em> il codice, non a ospitare il sito. Il sito gira su Hostinger.</td>
+            </tr>
+            <tr>
+              <td>Claude Code</td>
+              <td>Strumento usato dallo sviluppatore per modificare il codice con assistenza AI.</td>
+              <td>Non modifica mai il sito direttamente. Ogni modifica viene revisionata, committata e deployata esplicitamente.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 3 — STACK TECNICO -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">3</div>
+        <div class="section-title">Stack tecnico effettivo</div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Voce</th><th>Tecnologia / Servizio</th><th>Funzione</th><th>Dove si gestisce</th>
+          </tr></thead>
+          <tbody>
+            <tr><td>Frontend</td><td>React 19 + TypeScript</td><td>Interfaccia utente e logica di calcolo lato client</td><td>Cartella <code class="td-code">src/</code></td></tr>
+            <tr><td>Build</td><td>Vite 8</td><td>Compila React in file statici pronti per il web (<code class="td-code">dist/</code>)</td><td><code class="td-code">vite.config.ts</code></td></tr>
+            <tr><td>CSS / Stile</td><td>Tailwind CSS 3</td><td>Stile dell'interfaccia</td><td><code class="td-code">tailwind.config.js</code></td></tr>
+            <tr><td>Backend</td><td>Node.js + Express 4</td><td>API REST: autenticazione, AI, email, utenti</td><td><code class="td-code">server/index.js</code></td></tr>
+            <tr><td>Gestore processi</td><td>PM2</td><td>Mantiene il server Express sempre attivo su Hostinger</td><td>Via SSH · PM2 app name: <code class="td-code">moro-api</code></td></tr>
+            <tr><td>Database</td><td>SQLite (better-sqlite3)</td><td>Utenti, sessioni, OTP</td><td>File su Hostinger (percorso fisso configurato)</td></tr>
+            <tr><td>Grafici</td><td>Recharts</td><td>Grafici interattivi in tutte le analisi</td><td><code class="td-code">src/pages/</code></td></tr>
+            <tr><td>PDF</td><td>@react-pdf/renderer</td><td>Generazione report PDF scaricabili</td><td><code class="td-code">src/lib/pdf/</code></td></tr>
+            <tr><td>Excel</td><td>SheetJS (xlsx)</td><td>Import file Excel caricati dall'utente, export risultati</td><td><code class="td-code">src/pages/</code></td></tr>
+            <tr><td>AI / Commenti</td><td>Anthropic SDK → <code class="td-code">claude-sonnet-4-6</code></td><td>Genera commenti di analisi in linguaggio naturale</td><td>Chiamata nel server via <code class="td-code">/api/ai-comment</code></td></tr>
+            <tr><td>Email</td><td>Nodemailer + Brevo SMTP</td><td>Invia OTP di login e link di attivazione account</td><td>Variabili SMTP nel pannello Hostinger</td></tr>
+            <tr><td>Hosting</td><td>Hostinger</td><td>Ospita frontend (Apache) e API (PM2)</td><td>Pannello Hostinger o SSH</td></tr>
+            <tr><td>Web server</td><td>Apache 2 + mod_rewrite</td><td>Serve i file statici React, gestisce il routing</td><td>Configurazione generata da <code class="td-code">deploy.sh</code></td></tr>
+            <tr><td>Deploy</td><td>Script <code class="td-code">deploy.sh</code></td><td>Automatizza: git pull → build → copia file → restart PM2</td><td>Da eseguire sul server via SSH</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 4 — AMBIENTI E HOSTING -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">4</div>
+        <div class="section-title">Ambienti, URL e hosting</div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Ambiente</th><th>Provider</th><th>Funzione</th><th>Note operative</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>Landing pubblica<br><code class="td-code">marginview.it</code></td>
+              <td>Lovable</td>
+              <td>Presentazione commerciale</td>
+              <td>Non è in questo repository. Modifiche solo da Lovable.</td>
+            </tr>
+            <tr>
+              <td>App + API</td>
+              <td>Hostinger</td>
+              <td>Frontend React + server Express</td>
+              <td>File statici in <code class="td-code">/var/www/html/margin-analysis/</code> · API su porta <code class="td-code">5001</code></td>
+            </tr>
+            <tr>
+              <td>Database SQLite</td>
+              <td>Hostinger (file locale)</td>
+              <td>Utenti, sessioni</td>
+              <td>Percorso configurato: <code class="td-code">/home/u976446016/databases/marginview.sqlite</code></td>
+            </tr>
+            <tr>
+              <td>Repository</td>
+              <td>GitHub</td>
+              <td>Codice sorgente versionato</td>
+              <td><code class="td-code">github.com/AM-1989/marginview</code> · branch: <code class="td-code">main</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout ok">
+        <div class="callout-icon">✅</div>
+        <div class="callout-body">
+          <strong>Database: configurazione corretta</strong>
+          <p>Il file del database è posizionato fuori dalla cartella del progetto (<code>/home/u976446016/databases/marginview.sqlite</code>). Questo significa che sopravvive ai deploy e ai riavvii del server — gli utenti e i dati di accesso sono al sicuro.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 — REPOSITORY E FLUSSO DI LAVORO -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">5</div>
+        <div class="section-title">Repository e flusso di lavoro</div>
+      </div>
+
+      <p><strong>Repository GitHub:</strong> <code class="td-code">github.com/AM-1989/marginview</code> — account <strong>AM-1989</strong> (Alessio Moro). Branch principale: <code class="td-code">main</code>.</p>
+
+      <div class="callout info" style="margin: 14px 0 18px;">
+        <div class="callout-icon">ℹ️</div>
+        <div class="callout-body">
+          <strong>Una modifica al codice non va online da sola</strong>
+          <p>Il flusso è sempre: <strong>modifica locale → commit → push su GitHub → deploy sul server</strong>. Solo dopo il deploy il sito si aggiorna. GitHub è solo il punto di archiviazione sicuro del codice.</p>
+        </div>
+      </div>
+
+      <p style="margin-bottom:10px;font-weight:700;color:#1e293b;">Regola pratica per ogni modifica</p>
+      <ul class="checklist">
+        <li><div class="check-box"></div><span>Prima del deploy: creare un <strong>branch separato</strong> o annotare il commit corrente come punto di ripristino</span></li>
+        <li><div class="check-box"></div><span>Modificare solo i file necessari — non espandere il perimetro</span></li>
+        <li><div class="check-box"></div><span>Eseguire il <strong>build locale</strong> (<code class="td-code">npm run build</code>) per verificare che non ci siano errori</span></li>
+        <li><div class="check-box"></div><span>Leggere il <strong>diff</strong> prima di committare — controllare ogni riga modificata</span></li>
+        <li><div class="check-box"></div><span>Commit e push su GitHub</span></li>
+        <li><div class="check-box"></div><span>Eseguire <code class="td-code">./deploy.sh</code> sul server via SSH</span></li>
+        <li><div class="check-box"></div><span>Verificare su produzione con un file Excel reale</span></li>
+      </ul>
+
+      <div class="callout warn" style="margin-top:16px;">
+        <div class="callout-icon">⚠️</div>
+        <div class="callout-body">
+          <strong>Regola assoluta: <code>server/.env</code> non va MAI su Git</strong>
+          <p>Il file contiene password e chiavi API. È già escluso dal <code>.gitignore</code>. Se dovesse comparire in un commit per errore, considera quelle credenziali compromesse e cambiale immediatamente. Le variabili di produzione vivono nel pannello Hostinger, non nel repository.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 — MAPPA DEI FILE -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">6</div>
+        <div class="section-title">Dove si trovano le parti principali</div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Area funzionale</th><th>File / Cartella</th><th>Quando modificarla</th>
+          </tr></thead>
+          <tbody>
+            <tr><td>Logica calcolo ABC</td><td><code class="td-code">src/lib/abcAnalysis.ts</code></td><td>Quando cambiano le regole di rating o le soglie</td></tr>
+            <tr><td>Logica Matrice ABC</td><td><code class="td-code">src/lib/abcMatrixCalc.ts</code></td><td>Quando cambia la logica della matrice bidimensionale</td></tr>
+            <tr><td>Logica calcolo Varianza</td><td><code class="td-code">src/lib/varianceAnalysis.ts</code></td><td>Quando cambia il metodo di scomposizione effetti</td></tr>
+            <tr><td>Logica calcolo Bilancio</td><td><code class="td-code">src/lib/balanceAnalysis.ts</code></td><td>Quando cambiano le formule KPI</td></tr>
+            <tr><td>Pagina Matrice ABC</td><td><code class="td-code">src/pages/ABCMatrix.tsx</code></td><td>Layout, filtri, grafici del modulo ABC</td></tr>
+            <tr><td>Pagina Varianza</td><td><code class="td-code">src/pages/VarianceAnalysis.tsx</code></td><td>Layout, waterfall, tabella pivot</td></tr>
+            <tr><td>Pagina Bilancio</td><td><code class="td-code">src/pages/BalanceAnalysis.tsx</code></td><td>Input manuale, grafici KPI</td></tr>
+            <tr><td>Dashboard + Impostazioni</td><td><code class="td-code">src/pages/Dashboard.tsx</code><br><code class="td-code">src/pages/Settings.tsx</code></td><td>Homepage e gestione utenti admin</td></tr>
+            <tr><td>Report PDF — Varianza</td><td><code class="td-code">src/lib/pdf/VariancePDF.tsx</code></td><td>Layout e contenuto del PDF Varianza</td></tr>
+            <tr><td>Report PDF — ABC</td><td><code class="td-code">src/lib/pdf/ABCMatrixPDF.tsx</code></td><td>Layout e contenuto del PDF ABC</td></tr>
+            <tr><td>Report PDF — Bilancio</td><td><code class="td-code">src/lib/pdf/BalancePDF.tsx</code></td><td>Layout e contenuto del PDF Bilancio</td></tr>
+            <tr><td>Tipi dati condivisi</td><td><code class="td-code">src/types/index.ts</code></td><td>Quando si aggiungono nuovi campi ai dati</td></tr>
+            <tr><td>Server / API</td><td><code class="td-code">server/index.js</code></td><td>Auth, OTP, AI, utenti, SMTP, CORS</td></tr>
+            <tr><td>Template Excel Varianza</td><td><code class="td-code">public/template-variance-analysis.xlsx</code></td><td>Quando cambia il formato di input richiesto</td></tr>
+            <tr><td>Script di deploy</td><td><code class="td-code">deploy.sh</code></td><td>Se cambia la struttura del server o le cartelle</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 7 — REGOLE DI MANUTENZIONE -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">7</div>
+        <div class="section-title">Regole importanti di manutenzione</div>
+      </div>
+
+      <div style="display:grid; gap:10px;">
+        <div class="callout info">
+          <div class="callout-icon">🔢</div>
+          <div class="callout-body"><strong>Distinguere 0, dato assente e N/D</strong><p>Un valore a zero è diverso da un dato mancante. Nel codice questi tre stati hanno significati distinti — non vanno confusi nei calcoli.</p></div>
+        </div>
+        <div class="callout info">
+          <div class="callout-icon">🤖</div>
+          <div class="callout-body"><strong>L'AI riceve solo dati JSON elaborati, mai l'Excel grezzo</strong><p>Quando viene richiesto un commento AI, il server invia ad Anthropic solo i valori numerici già calcolati, formattati come testo strutturato. Il file Excel non lascia mai il browser dell'utente.</p></div>
+        </div>
+        <div class="callout info">
+          <div class="callout-icon">🎨</div>
+          <div class="callout-body"><strong>Non toccare i calcoli per interventi grafici</strong><p>Se si modifica solo l'aspetto visivo (colori, layout, testi), non toccare i file <code>src/lib/</code>. La logica è separata dall'interfaccia apposta.</p></div>
+        </div>
+        <div class="callout info">
+          <div class="callout-icon">🌐</div>
+          <div class="callout-body"><strong>CORS: aggiornare il pannello, non il codice</strong><p>I domini autorizzati a chiamare le API sono nella variabile <code>CORS_ORIGIN</code> del pannello Hostinger. Se si cambia dominio, va aggiornata solo quella variabile (e riavviato PM2), non il codice sorgente.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 — PROCEDURA SICURA -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">8</div>
+        <div class="section-title">Procedura sicura per una modifica</div>
+      </div>
+
+      <ol class="checklist" style="list-style:none;">
+        <li><div class="check-num">1</div><span><strong>Identificare il modulo coinvolto</strong> — usare la tabella della sezione 6 per trovare il file giusto</span></li>
+        <li><div class="check-num">2</div><span><strong>Creare un branch o un backup</strong> — <code class="td-code">git checkout -b nome-modifica</code> prima di toccare qualsiasi file</span></li>
+        <li><div class="check-num">3</div><span><strong>Modificare</strong> solo i file necessari, senza espandere il perimetro della modifica</span></li>
+        <li><div class="check-num">4</div><span><strong>Build locale</strong> (<code class="td-code">npm run build</code>) — verifica che non ci siano errori di compilazione</span></li>
+        <li><div class="check-num">5</div><span><strong>Test funzionale</strong> — avviare l'app in locale (<code class="td-code">npm run dev:full</code>), caricare un Excel di test, verificare dashboard, tabelle, grafici e PDF se coinvolti</span></li>
+        <li><div class="check-num">6</div><span><strong>Revisionare il diff</strong> — <code class="td-code">git diff</code> prima di committare: leggere ogni riga modificata</span></li>
+        <li><div class="check-num">7</div><span><strong>Commit e push</strong> su GitHub con un messaggio descrittivo (es. <em>fix(abc): corretta soglia rating margine</em>)</span></li>
+        <li><div class="check-num">8</div><span><strong>Deploy sul server</strong> — SSH su Hostinger → <code class="td-code">./deploy.sh</code></span></li>
+        <li><div class="check-num">9</div><span><strong>Verifica finale</strong> su produzione con un file Excel reale prima di considerare la modifica conclusa</span></li>
+      </ol>
+    </div>
+
+    <!-- 9 — ACCESSI E PROPRIETÀ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">9</div>
+        <div class="section-title">Accessi e proprietà</div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>Servizio</th><th>Funzione</th><th>Proprietario</th><th>Stato</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td>GitHub<br><code class="td-code">AM-1989/marginview</code></td>
+              <td>Repository codice</td>
+              <td>Alessio Moro (AM-1989)</td>
+              <td><span class="badge badge-ok">✓ Tuo</span></td>
+            </tr>
+            <tr>
+              <td>Hostinger</td>
+              <td>Hosting app + API + DB</td>
+              <td>Verificare — probabile Alessio</td>
+              <td><span class="badge badge-ok">✓ Tuo</span></td>
+            </tr>
+            <tr>
+              <td>Anthropic API<br><em>(commenti AI)</em></td>
+              <td>Chiave per claude-sonnet-4-6</td>
+              <td>Alessio Moro</td>
+              <td><span class="badge badge-ok">✓ Tuo</span></td>
+            </tr>
+            <tr>
+              <td>Lovable</td>
+              <td>Landing page <code class="td-code">marginview.it</code></td>
+              <td>Alessio Moro</td>
+              <td><span class="badge badge-ok">✓ Tuo</span></td>
+            </tr>
+            <tr>
+              <td>Dominio DNS<br><code class="td-code">marginview.it</code></td>
+              <td>Gestione dominio e DNS</td>
+              <td>Alessio Moro (Hostinger)</td>
+              <td><span class="badge badge-ok">✓ Tuo</span></td>
+            </tr>
+            <tr>
+              <td>Brevo SMTP<br><em>(email OTP e attivazioni)</em></td>
+              <td>Invio email di accesso</td>
+              <td>⚠️ Attualmente account di Luca Pantea — <strong>da migrare</strong></td>
+              <td><span class="badge badge-warn">Azione richiesta</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:8px;font-size:8.5pt;color:#64748b;">Le credenziali di accesso non sono incluse in questo documento. Conservarle in un gestore di password sicuro (es. Bitwarden, 1Password).</p>
+    </div>
+
+    <!-- BREVO GUIDE -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num" style="background:var(--amber);">★</div>
+        <div class="section-title">Guida: migrazione email a Brevo (account proprio)</div>
+      </div>
+
+      <div class="callout warn">
+        <div class="callout-icon">⚠️</div>
+        <div class="callout-body">
+          <strong>Perché è necessario</strong>
+          <p>Attualmente le email di accesso (codice OTP + attivazione account) vengono inviate tramite l'account Brevo dello sviluppatore. Per essere completamente indipendente, Alessio deve avere il proprio account Brevo con le proprie credenziali SMTP.</p>
+        </div>
+      </div>
+
+      <p style="margin: 16px 0 10px; font-weight: 700; color: #1e293b;">Come fare (10 minuti, gratuito):</p>
+
+      <ol class="guide-steps">
+        <li>
+          <p>Vai su <strong>brevo.com</strong> e crea un account gratuito con la tua email aziendale. Il piano gratuito include 300 email al giorno — più che sufficiente.</p>
+        </li>
+        <li>
+          <p>Una volta dentro, vai su <strong>Settings → SMTP &amp; API</strong> nel menu in alto a destra.</p>
+        </li>
+        <li>
+          <p>Clicca su <strong>"Generate a new SMTP key"</strong>. Dai un nome (es. "MarginView produzione") e conferma. <strong>Copia la chiave generata</strong> — viene mostrata una sola volta.</p>
+        </li>
+        <li>
+          <p>Annota i valori che ti servono:<br>
+          <code>SMTP_HOST</code> = <code>smtp-relay.brevo.com</code><br>
+          <code>SMTP_PORT</code> = <code>587</code><br>
+          <code>SMTP_SECURE</code> = <code>false</code><br>
+          <code>SMTP_USER</code> = la tua email di login Brevo<br>
+          <code>SMTP_PASS</code> = la chiave SMTP generata al punto 3<br>
+          <code>SMTP_FROM</code> = l'indirizzo mittente che vuoi mostrare (es. <code>noreply@marginview.it</code>)</p>
+        </li>
+        <li>
+          <p>Nel <strong>pannello Hostinger</strong>, entra nelle variabili d'ambiente del progetto e aggiorna i valori <code>SMTP_HOST</code>, <code>SMTP_PORT</code>, <code>SMTP_USER</code>, <code>SMTP_PASS</code>, <code>SMTP_FROM</code> con i nuovi valori Brevo.</p>
+        </li>
+        <li>
+          <p>Riavvia il processo API via SSH oppure tramite il pannello PM2 di Hostinger con il comando: <code>pm2 restart moro-api</code></p>
+        </li>
+        <li>
+          <p>Testa l'invio: prova ad accedere all'app con il tuo account — dovresti ricevere il codice OTP sulla tua email. Se arriva, la migrazione è completata.</p>
+        </li>
+      </ol>
+
+      <div class="callout ok" style="margin-top:14px;">
+        <div class="callout-icon">✅</div>
+        <div class="callout-body">
+          <strong>Fatto questo, l'app è completamente tua — zero dipendenze esterne</strong>
+          <p>GitHub, Hostinger (app + DB + dominio), Lovable (landing), Anthropic API e Brevo saranno tutti intestati ad Alessio Moro. L'unica migrazione rimasta è questa.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10 — STATO E PROSSIMI PASSI -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-num">10</div>
+        <div class="section-title">Stato attuale e modifiche in coda</div>
+      </div>
+
+      <p style="margin-bottom:14px;">Funzionalità completate e attive in produzione:</p>
+      <ul style="list-style:none; padding:0; margin-bottom:20px; display:grid; gap:4px;">
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Autenticazione a due fattori (OTP via email), sessioni 8 ore, ruoli admin/user</li>
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Gestione utenti con inviti via email e link di attivazione account</li>
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Modulo Matrice ABC completo (import, classificazione, matrice, Pareto, what-if, Excel, PDF, AI)</li>
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Modulo Varianza completo (import, waterfall, gerarchia 5 livelli, tabella pivot, Excel, PDF, AI)</li>
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Modulo Bilancio completo (input multi-anno, KPI, grafici, PDF, AI)</li>
+        <li style="font-size:9pt; color:#065f46; padding:5px 10px; background:var(--green-lt); border-radius:5px;">✓ Deploy automatizzato via script + webhook remoto</li>
+      </ul>
+
+    </div>
+
+  </div><!-- /content -->
+
+  <!-- ══ FOOTER ════════════════════════════════════════════════════════════ -->
+  <div class="footer">
+    <p class="footer-brand">MARGINVIEW</p>
+    <p>Documento di handoff — settembre 2026 · Redatto da Luca Pantea</p>
+    <p>github.com/AM-1989/marginview</p>
+  </div>
+
+</div><!-- /page -->
+</body>
+</html>

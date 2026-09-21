@@ -13,9 +13,9 @@ export interface VariancePDFProps {
 
 // ── Local formatters (effects are decimal: 0.023 = 2.3 pp) ──────────────────
 const pct = (v: number | null): string =>
-  v !== null && isFinite(v) ? `${(v * 100).toFixed(1)}%` : 'N/D';
+  v !== null && isFinite(v) ? `${(v * 100).toFixed(1)}%` : '-';
 const pp = (v: number): string =>
-  isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : 'N/D';
+  isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : '-';
 const clr = (v: number) => v > 0 ? C.emerald : v < 0 ? C.red : C.slate5;
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -174,14 +174,14 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
   // Build Canale → Brand → Categoria hierarchy
   const canaleMap = new Map<string, ComparedLine[]>();
   for (const l of effects.lines) {
-    const cn = l.canale || 'N/D';
+    const cn = l.canale || '-';
     if (!canaleMap.has(cn)) canaleMap.set(cn, []);
     canaleMap.get(cn)!.push(l);
   }
   const hierCanali = [...canaleMap.entries()].map(([canale, cnLines]) => {
     const brandMap = new Map<string, ComparedLine[]>();
     for (const l of cnLines) {
-      const b = l.brand || 'N/D';
+      const b = l.brand || '-';
       if (!brandMap.has(b)) brandMap.set(b, []);
       brandMap.get(b)!.push(l);
     }
@@ -191,7 +191,7 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment, cons
       brands: [...brandMap.entries()].map(([brand, bLines]) => {
         const catMap = new Map<string, ComparedLine[]>();
         for (const l of bLines) {
-          const c = l.categoria || 'N/D';
+          const c = l.categoria || '-';
           if (!catMap.has(c)) catMap.set(c, []);
           catMap.get(c)!.push(l);
         }

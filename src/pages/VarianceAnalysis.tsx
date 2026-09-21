@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList,
+  Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
   Upload, Loader2, FileDown, Filter, AlertTriangle,
@@ -28,8 +28,8 @@ import type {
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 const fmtEur = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const fmtPct = (v: number, dec = 2) => isFinite(v) ? `${v.toFixed(dec)}%` : 'N/D';
-const fmtPp  = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : 'N/D';
+const fmtPct = (v: number, dec = 2) => isFinite(v) ? `${v.toFixed(dec)}%` : '-';
+const fmtPp  = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : '-';
 const fmtDiff = (v: number) => `${v >= 0 ? '+' : ''}${fmtEur.format(v)}`;
 const clrPp  = (v: number) => v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : 'text-slate-500';
 
@@ -121,44 +121,6 @@ function WfTooltipEur({ active, payload }: { active?: boolean; payload?: { paylo
 
 // ─── Waterfall chart ──────────────────────────────────────────────────────────
 
-type WfLabelProps = { x?: number | string; y?: number | string; width?: number | string; index?: number };
-
-// p1Base: if provided, bar labels are formatted as % of that base value
-function makeWfLabel(
-  data: WaterfallPoint[],
-  type: 'total' | 'green' | 'red',
-  yFmt: (v: number) => string,
-  p1Base?: number,
-) {
-  const pct = (v: number) => `${v >= 0 ? '+' : ''}${(v / (p1Base ?? 1) * 100).toFixed(1)}%`;
-  return function WfBarLabel({ x, y, width, index }: WfLabelProps) {
-    const pt = data[index ?? 0];
-    if (!pt) return null;
-    if (type === 'total' && !pt.isTotal) return null;
-    if (type === 'green' && pt.green === 0) return null;
-    if (type === 'red'   && pt.red   === 0) return null;
-
-    const cx = +(x ?? 0) + +(width ?? 0) / 2;
-    const cy = Math.max(8, +(y ?? 0) - 5);
-    let label: string;
-    let fill: string;
-    if (type === 'total') {
-      label = p1Base ? (pt.name === 'P1' ? '100%' : pct(pt.rawValue - p1Base)) : yFmt(pt.rawValue);
-      fill  = '#2563eb';
-    } else if (type === 'green') {
-      label = p1Base ? pct(pt.rawValue) : `+${yFmt(pt.rawValue)}`;
-      fill  = '#059669';
-    } else {
-      label = p1Base ? pct(pt.rawValue) : `-${yFmt(Math.abs(pt.rawValue))}`;
-      fill  = '#ef4444';
-    }
-    return (
-      <text x={cx} y={cy} textAnchor="middle" fontSize={9} fill={fill} fontWeight={600}>
-        {label}
-      </text>
-    );
-  };
-}
 
 function WaterfallChart({
   data, title, subtitle, yFmt, tooltip, barLabelAsPct,
@@ -172,9 +134,39 @@ function WaterfallChart({
 }) {
   const TooltipComp = tooltip;
   const p1Base = barLabelAsPct ? data.find(d => d.name === 'P1')?.rawValue : undefined;
-  const LabelTotal = makeWfLabel(data, 'total', yFmt, p1Base);
-  const LabelGreen = makeWfLabel(data, 'green', yFmt, p1Base);
-  const LabelRed   = makeWfLabel(data, 'red',   yFmt, p1Base);
+  const pct = (v: number) => `${v >= 0 ? '+' : ''}${(v / (p1Base ?? 1) * 100).toFixed(1)}%`;
+
+  // Pre-compute label + color for every bar — rendered as second line in the x-axis tick
+  const barMeta: Record<string, { label: string; fill: string }> = {};
+  for (const pt of data) {
+    let label = '';
+    let fill = '#64748b';
+    if (pt.isTotal) {
+      label = p1Base ? (pt.name === 'P1' ? '100%' : pct(pt.rawValue - p1Base)) : yFmt(pt.rawValue);
+      fill  = '#2563eb';
+    } else if (pt.green !== 0) {
+      label = p1Base ? pct(pt.rawValue) : `+${yFmt(pt.rawValue)}`;
+      fill  = pt.green > 0 ? '#059669' : '#ef4444';
+    } else if (pt.red !== 0) {
+      label = p1Base ? pct(pt.rawValue) : `-${yFmt(Math.abs(pt.rawValue))}`;
+      fill  = '#ef4444';
+    }
+    barMeta[pt.name] = { label, fill };
+  }
+
+  function CustomTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) {
+    const name = payload?.value ?? '';
+    const meta = barMeta[name];
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text textAnchor="middle" fill="#64748b" fontSize={10} dy={13}>{name}</text>
+        {meta?.label && (
+          <text textAnchor="middle" fill={meta.fill} fontSize={9} fontWeight={700} dy={26}>{meta.label}</text>
+        )}
+      </g>
+    );
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="mb-4">
@@ -193,22 +185,16 @@ function WaterfallChart({
           </span>
         ))}
       </div>
-      <ResponsiveContainer width="100%" height={260}>
-        <BarChart data={data} margin={{ top: 28, right: 10, bottom: 5, left: 10 }} barCategoryGap="20%">
+      <ResponsiveContainer width="100%" height={270}>
+        <BarChart data={data} margin={{ top: 8, right: 10, bottom: 28, left: 10 }} barCategoryGap="20%">
           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-          <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <XAxis dataKey="name" tick={CustomTick as never} axisLine={false} tickLine={false} interval={0} height={42} />
           <YAxis tickFormatter={yFmt} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={52} />
           <Tooltip content={(props) => <TooltipComp active={props.active} payload={props.payload as unknown as { payload?: WaterfallPoint }[]} />} cursor={{ fill: '#f8fafc' }} />
           <Bar dataKey="spacer" stackId="wf" fill="transparent" isAnimationActive={false} />
-          <Bar dataKey="total"  stackId="wf" fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList content={LabelTotal} />
-          </Bar>
-          <Bar dataKey="green"  stackId="wf" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList content={LabelGreen} />
-          </Bar>
-          <Bar dataKey="red"    stackId="wf" fill="#f87171" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList content={LabelRed} />
-          </Bar>
+          <Bar dataKey="total"  stackId="wf" fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          <Bar dataKey="green"  stackId="wf" fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          <Bar dataKey="red"    stackId="wf" fill="#f87171" radius={[4, 4, 0, 0]} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -249,8 +235,8 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
         {cat.categoria}
       </p>
       <div className="flex gap-3 text-[10px] text-slate-500 pt-1">
-        <p><span className="font-medium">M% P1:</span> {cat.marginPct1 !== null ? fmtPct(cat.marginPct1 * 100) : 'N/D'}</p>
-        <p><span className="font-medium">M% P2:</span> {cat.marginPct2 !== null ? fmtPct(cat.marginPct2 * 100) : 'N/D'}</p>
+        <p><span className="font-medium">M% P1:</span> {cat.marginPct1 !== null ? fmtPct(cat.marginPct1 * 100) : '-'}</p>
+        <p><span className="font-medium">M% P2:</span> {cat.marginPct2 !== null ? fmtPct(cat.marginPct2 * 100) : '-'}</p>
       </div>
     </div>
   );
@@ -413,35 +399,35 @@ function HierarchicalBridgeTable({
   const nodes = useMemo<HierCanaleNode[]>(() => {
     const canaleMap = new Map<string, ComparedLine[]>();
     for (const l of allLines) {
-      const cn = l.canale || 'N/D';
+      const cn = l.canale || '-';
       if (!canaleMap.has(cn)) canaleMap.set(cn, []);
       canaleMap.get(cn)!.push(l);
     }
     return [...canaleMap.entries()].map(([canale, cnLines]) => {
       const brandMap = new Map<string, ComparedLine[]>();
       for (const l of cnLines) {
-        const b = l.brand || 'N/D';
+        const b = l.brand || '-';
         if (!brandMap.has(b)) brandMap.set(b, []);
         brandMap.get(b)!.push(l);
       }
       const brands: HierBrandNode[] = [...brandMap.entries()].map(([brand, bLines]) => {
         const catMap = new Map<string, ComparedLine[]>();
         for (const l of bLines) {
-          const c = l.categoria || 'N/D';
+          const c = l.categoria || '-';
           if (!catMap.has(c)) catMap.set(c, []);
           catMap.get(c)!.push(l);
         }
         const cats: HierCatNode[] = [...catMap.entries()].map(([categoria, cLines]) => {
           const scMap = new Map<string, ComparedLine[]>();
           for (const l of cLines) {
-            const s = l.sottocategoria || 'N/D';
+            const s = l.sottocategoria || '-';
             if (!scMap.has(s)) scMap.set(s, []);
             scMap.get(s)!.push(l);
           }
           const subcats: HierSubcatNode[] = [...scMap.entries()].map(([subcat, sLines]) => {
             const refMap = new Map<string, ComparedLine[]>();
             for (const l of sLines) {
-              const r = l.codice || l.descrizione || 'N/D';
+              const r = l.codice || l.descrizione || '-';
               if (!refMap.has(r)) refMap.set(r, []);
               refMap.get(r)!.push(l);
             }
@@ -796,7 +782,7 @@ export default function VarianceAnalysis() {
     if (!effects) return null;
     const map = new Map<string, { rev1: number; cost1: number; rev2: number; cost2: number }>();
     for (const l of effects.lines) {
-      const cat = l.categoria.trim() || 'N/D';
+      const cat = l.categoria.trim() || '-';
       const d = map.get(cat) ?? { rev1: 0, cost1: 0, rev2: 0, cost2: 0 };
       d.rev1 += l.rev1; d.cost1 += l.cost1;
       d.rev2 += l.rev2; d.cost2 += l.cost2;
