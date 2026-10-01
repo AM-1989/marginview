@@ -1392,25 +1392,25 @@ export default function VarianceAnalysis() {
         <div className="mt-2 border-t-4 border-slate-200 bg-white">
           <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-          <div className="px-6 py-5 bg-slate-900 flex items-center justify-between">
+          <div className="px-6 py-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-white">Variazione Margine % per Gruppo</h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <h2 className="text-base font-bold text-slate-800">Variazione Margine % per Gruppo</h2>
+              <p className="text-xs text-slate-500 mt-1">
                 Gerarchia Brand → Categoria → Sottocategoria → Formato · bridge sequenziale degli effetti
               </p>
             </div>
             <div className="flex items-center gap-6 text-right">
               <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P1</p>
-                <p className="text-sm font-bold text-sky-300">{(effects.marginPctP1 * 100).toFixed(2)}%</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Cos% P1</p>
+                <p className="text-sm font-bold text-slate-700">{(effects.marginPctP1 * 100).toFixed(2)}%</p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Cos% P2</p>
-                <p className="text-sm font-bold text-sky-300">{(effects.marginPctP2 * 100).toFixed(2)}%</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Cos% P2</p>
+                <p className="text-sm font-bold text-slate-700">{(effects.marginPctP2 * 100).toFixed(2)}%</p>
               </div>
               <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest">Δ Totale</p>
-                <p className={`text-sm font-bold ${(effects.marginPctP2 - effects.marginPctP1) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <p className="text-[10px] text-slate-400 uppercase tracking-widest">Δ Totale</p>
+                <p className={`text-sm font-bold ${(effects.marginPctP2 - effects.marginPctP1) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                   {(effects.marginPctP2 - effects.marginPctP1) >= 0 ? '+' : ''}{((effects.marginPctP2 - effects.marginPctP1) * 100).toFixed(2)} pp
                 </p>
               </div>
