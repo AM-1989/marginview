@@ -12,22 +12,22 @@ const SEG_ROW_BG: Record<SegmentKey, string> = {
   CA: 'FFE8F3ED', CB: 'FFF5F6FA', CC: 'FFFBEAE8',
 };
 
-// Variance: row bg by hierarchy level — clear visual hierarchy
+// Variance: row bg by hierarchy level — same palette as ABC template
 const VAR_LEVEL_BG: Record<string, string> = {
   TOTALE:         NAVY,
-  CANALE:         'FF94A3B8',   // slate-400 — clearly visible medium gray
-  Brand:          'FFD1DAE5',   // between slate-200 and slate-300 — visible but lighter
-  Categoria:      'FFF1F5F9',   // slate-100
-  Sottocategoria: 'FFF8FAFC',   // slate-50
+  CANALE:         'FFE8F3ED',   // green pastel (same as ABC A-segment)
+  Brand:          'FFF5F6FA',   // neutral (same as ABC B-segment)
+  Categoria:      'FFFCFDFE',   // near-white
+  Sottocategoria: 'FFFFFFFF',
   Referenza:      'FFFFFFFF',
 };
 const VAR_LEVEL_FONT: Record<string, string> = {
   TOTALE:         WHITE,
-  CANALE:         WHITE,        // white on medium gray for contrast
-  Brand:          'FF1E293B',   // slate-900 dark on light bg
-  Categoria:      'FF334155',   // slate-700
-  Sottocategoria: 'FF475569',   // slate-600
-  Referenza:      'FF64748B',   // slate-500
+  CANALE:         'FF1E2761',   // navy text on green pastel (matches ABC header color)
+  Brand:          'FF334155',   // slate-700
+  Categoria:      'FF475569',   // slate-600
+  Sottocategoria: 'FF64748B',   // slate-500
+  Referenza:      'FF64748B',
 };
 const VAR_LEVEL_BOLD: Record<string, boolean> = {
   TOTALE: true, CANALE: true, Brand: true,
