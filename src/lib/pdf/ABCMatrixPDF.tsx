@@ -111,7 +111,6 @@ const S = StyleSheet.create({
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const healthClr = (s: number) => s >= 70 ? C.emerald : s >= 45 ? C.amber : C.red;
-const priClr    = (p: string) => p === 'alta' ? C.red : p === 'media' ? C.amber : C.slate5;
 
 function HealthBar({ score, color }: { score: number; color: string }) {
   const W = 156;
@@ -154,7 +153,7 @@ function PdfFooter() {
 export default function ABCMatrixPDF({
   products, totalRevenue, totalProfit, weightedMargin,
   gini, paretoIndex, starRevenuePct, riskRevenuePct, belowAvgCount,
-  matrix, health, enrichedActions, totalImpact, aiComment,
+  matrix, health, aiComment,
 }: ABCMatrixPDFProps) {
 
   const SEGS: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
@@ -295,9 +294,9 @@ export default function ABCMatrixPDF({
 
           </View>
 
-          {/* AI comment — wrap={false} so it never splits across pages */}
+          {/* AI comment — break forces new page so text has full height to flow */}
           {aiComment && (
-            <View wrap={false} style={{ marginTop: 14 }}>
+            <View break>
               <Text style={S.secLabel2}>Analisi</Text>
               <View style={S.aiBlock}>
                 <Text style={S.aiTitle}>Commento AI — Matrice ABC</Text>
@@ -328,45 +327,6 @@ export default function ABCMatrixPDF({
         <PdfHeader subtitle="Matrice ABC" />
 
         <View style={base.body}>
-
-          {/* Action Items */}
-          {enrichedActions.length > 0 && (
-            <>
-              <Text style={S.secLabel2}>
-                Action Items · {enrichedActions.length} azioni · Impatto stimato: {fmtEur(totalImpact)}
-              </Text>
-              {enrichedActions.slice(0, 5).map(a => (
-                <View key={a.n} style={S.actionCard} wrap={false}>
-                  <View style={S.actionBadge}>
-                    <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.slate6 }}>{a.n}</Text>
-                  </View>
-                  <View style={S.actionBody}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-                      <Text style={[S.actionTitle, { flex: 1, marginRight: 8 }]}>{a.title}</Text>
-                      <View style={[S.actionPri, { backgroundColor: priClr(a.priority) }]}>
-                        <Text style={{ fontSize: 6, color: C.white, fontFamily: 'Helvetica-Bold' }}>
-                          {a.priority.toUpperCase()}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={S.actionDesc}>{a.description}</Text>
-                    <View style={S.actionMeta}>
-                      <Text style={{ fontSize: 6.5, color: C.slate5 }}>Impatto: {fmtEur(a.impact)}</Text>
-                      <Text style={{ fontSize: 6.5, color: C.slate5 }}>Prodotti: {a.products.length}</Text>
-                      <Text style={{ fontSize: 6.5, color: C.slate4 }}>
-                        {a.products.slice(0, 3).map(p => p.id).join(', ')}{a.products.length > 3 ? ` +${a.products.length - 3}` : ''}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              ))}
-              {enrichedActions.length > 5 && (
-                <Text style={{ fontSize: 6.5, color: C.slate4, marginBottom: 8 }}>
-                  +{enrichedActions.length - 5} azioni aggiuntive non mostrate
-                </Text>
-              )}
-            </>
-          )}
 
           {/* Top Products Table */}
           <Text style={S.secLabel2}>Top {top15.length} Prodotti per Fatturato</Text>

@@ -45,10 +45,19 @@ const S = StyleSheet.create({
   bsTitle:  { fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.slate5, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
   bsRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: C.slate1 },
 
-  // Comments
-  aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
-  aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
-  aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
+  // Comments — light, no dark background
+  aiBlock:   { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
+  aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.slate7, marginBottom: 6 },
+  aiText:    { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
+
+  // Header / footer overrides (no dark bg — same style as Variance + ABC PDFs)
+  header:      { backgroundColor: C.slate1, paddingHorizontal: 32, paddingVertical: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderBottomWidth: 1, borderBottomColor: C.slate2 },
+  headerBrand: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.slate5, letterSpacing: 2, marginBottom: 3 },
+  headerTitle: { fontFamily: 'Helvetica-Bold', fontSize: 16, color: C.slate7 },
+  headerSub:   { fontSize: 8, color: C.slate5, marginTop: 3 },
+  footer:      { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: C.slate1, borderTopWidth: 1, borderTopColor: C.slate2, paddingHorizontal: 32, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  footerBrand: { fontSize: 7, color: C.slate5, fontFamily: 'Helvetica-Bold' },
+  secLabel:    { fontFamily: 'Helvetica-Bold', fontSize: 6.5, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7, marginTop: 18 },
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,14 +89,14 @@ function TrendBar({ value, max, color }: { value: number; max: number; color: st
 
 function PdfHeader({ anno }: { anno: number }) {
   return (
-    <View style={base.header}>
+    <View style={S.header}>
       <View style={base.headerLeft}>
-        <Text style={base.headerBrand}>MARGINVIEW</Text>
-        <Text style={base.headerTitle}>Analisi di Bilancio {anno}</Text>
-        <Text style={base.headerSub}>KPI Finanziari · Redditività, Liquidità, Leva, Ciclo del Capitale</Text>
+        <Text style={S.headerBrand}>MARGINVIEW</Text>
+        <Text style={S.headerTitle}>Analisi di Bilancio {anno}</Text>
+        <Text style={S.headerSub}>KPI Finanziari · Redditività, Liquidità, Leva, Ciclo del Capitale</Text>
       </View>
       <View style={base.headerRight}>
-        <Text style={base.headerDate}>{today()}</Text>
+        <Text style={[base.headerDate, { color: C.slate3 }]}>{today()}</Text>
       </View>
     </View>
   );
@@ -95,8 +104,8 @@ function PdfHeader({ anno }: { anno: number }) {
 
 function PdfFooter({ anno }: { anno: number }) {
   return (
-    <View style={base.footer} fixed>
-      <Text style={base.footerBrand}>MARGINVIEW</Text>
+    <View style={S.footer} fixed>
+      <Text style={S.footerBrand}>MARGINVIEW</Text>
       <Text style={base.footerText}>Analisi Bilancio {anno} — Documento riservato</Text>
       <Text style={base.footerText} render={({ pageNumber, totalPages }) => `Pag. ${pageNumber} / ${totalPages}`} />
     </View>
@@ -125,7 +134,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
         <View style={base.body}>
 
           {/* Conto Economico strip — 5 card flex:1 */}
-          <Text style={base.sectionLabel}>Conto Economico Sintesi — {anno}</Text>
+          <Text style={S.secLabel}>Conto Economico Sintesi — {anno}</Text>
           <View style={S.cardRow}>
             {([
               { label: 'Ricavi',         val: fmtEur(selInput.ricavi),         clr: C.dark },
@@ -142,7 +151,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           </View>
 
           {/* Redditività — 5 card in 2 rows using flexWrap */}
-          <Text style={base.sectionLabel}>Redditività</Text>
+          <Text style={S.secLabel}>Redditività</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {([
               { key: 'ebitdaPerc',     label: 'EBITDA %',      val: fmtPct(selKpi.ebitdaPerc),     abs: fmtEur(selKpi.ebitda),   ctx: 'Margine operativo lordo' },
@@ -161,7 +170,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           </View>
 
           {/* Liquidità e Leva */}
-          <Text style={base.sectionLabel}>Liquidità e Leva Finanziaria</Text>
+          <Text style={S.secLabel}>Liquidità e Leva Finanziaria</Text>
           <View style={S.indTable}>
             <View style={S.indHead}>
               <Text style={[S.indHCell, { flex: 1 }]}>Indicatore</Text>
@@ -186,7 +195,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           </View>
 
           {/* Ciclo del Capitale Circolante */}
-          <Text style={base.sectionLabel}>Ciclo del Capitale Circolante</Text>
+          <Text style={S.secLabel}>Ciclo del Capitale Circolante</Text>
           <View style={S.indTable}>
             <View style={S.indHead}>
               <Text style={[S.indHCell, { flex: 1 }]}>Indicatore</Text>
@@ -221,7 +230,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           {/* Multi-year trend */}
           {kpis.length > 1 && (
             <>
-              <Text style={base.sectionLabel}>Andamento Pluriennale</Text>
+              <Text style={S.secLabel}>Andamento Pluriennale</Text>
               <View style={S.trendSection}>
                 {trendKpis.map(({ label, key, fmt }, ti) => {
                   const vals  = kpis.map(k => k[key] as number);
@@ -248,7 +257,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           )}
 
           {/* Stato Patrimoniale */}
-          <Text style={base.sectionLabel}>Stato Patrimoniale Sintetico — {anno}</Text>
+          <Text style={S.secLabel}>Stato Patrimoniale Sintetico — {anno}</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
 
             <View style={S.bsCard}>
@@ -286,7 +295,7 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
           </View>
 
           {/* KPI snapshot del periodo selezionato */}
-          <Text style={base.sectionLabel}>Riepilogo KPI — {anno}</Text>
+          <Text style={S.secLabel}>Riepilogo KPI — {anno}</Text>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             {([
               { label: 'PFN',            val: fmtEur(selInput.debitiFinanziariBT + selInput.debitiFinanziariLT - selInput.liquidita), clr: C.slate7 },
@@ -302,27 +311,27 @@ export default function BalancePDF({ kpis, selKpi, selInput, aiComment }: Balanc
             ))}
           </View>
 
-          {/* AI comment */}
+          {/* AI comment — break forces new page so text has full height to flow */}
           {aiComment && (
-            <>
-              <Text style={[base.sectionLabel, { marginTop: 14 }]}>Analisi</Text>
-              <View style={[S.aiBlock]}>
+            <View break>
+              <Text style={S.secLabel}>Analisi</Text>
+              <View style={S.aiBlock}>
                 <Text style={S.aiTitle}>Commento AI — Bilancio {anno}</Text>
                 <Text style={S.aiText}>{aiComment}</Text>
-                <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
+                <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.slate2 }}>
                   {([
                     { label: 'EBITDA %',   v: fmtPct(selKpi.ebitdaPerc) },
                     { label: 'ROE',        v: fmtPct(selKpi.roe) },
                     { label: 'PFN/EBITDA', v: fmtX(selKpi.pfnEbitda) },
                   ]).map(({ label, v }) => (
                     <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                      <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
-                      <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
+                      <Text style={{ fontSize: 6, color: C.slate5, marginBottom: 2 }}>{label}</Text>
+                      <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate7 }}>{v}</Text>
                     </View>
                   ))}
                 </View>
               </View>
-            </>
+            </View>
           )}
 
         </View>
