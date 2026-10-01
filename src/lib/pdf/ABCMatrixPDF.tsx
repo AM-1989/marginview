@@ -159,8 +159,6 @@ export default function ABCMatrixPDF({
   const SEGS: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
   const SEGMENT_ORDER: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
   const classARevenue = (['AA','AB','AC'] as SegmentKey[]).reduce((s, k) => s + (matrix[k]?.revenue ?? 0), 0);
-  const top15 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 15);
-
   // Giacenza section — only when data is present
   const hasGiacenza = products.some(p => p.giacenza !== undefined);
   const giacenzaProducts = hasGiacenza
@@ -316,45 +314,6 @@ export default function ABCMatrixPDF({
               </View>
             </View>
           )}
-
-        </View>
-
-        <PdfFooter />
-      </Page>
-
-      {/* ── PAGE 2: Action Items + Products ────────────────────────────────── */}
-      <Page size="A4" style={base.page}>
-        <PdfHeader subtitle="Matrice ABC" />
-
-        <View style={base.body}>
-
-          {/* Top Products Table */}
-          <Text style={S.secLabel2}>Top {top15.length} Prodotti per Fatturato</Text>
-          <View style={S.tblHead}>
-            {([['22%','Codice'],['29%','Descrizione'],['16%','Fatturato'],['11%','Marg %'],['13%','Profitto'],['9%','Rating']] as [string,string][]).map(([w, h]) => (
-              <Text key={h} style={[S.tblHCell, { width: w }]}>{h}</Text>
-            ))}
-          </View>
-          {top15.map((p, i) => (
-            <View key={p.id || i} style={i % 2 === 0 ? S.tblRow : S.tblAlt}>
-              <Text style={[S.tblCell, { width: '22%', color: C.slate4 }]}>{p.id || '-'}</Text>
-              <Text style={[S.tblCell, { width: '29%' }]}>{p.name || '-'}</Text>
-              <Text style={[S.tblCell, { width: '16%', textAlign: 'right', fontFamily: 'Helvetica-Bold' }]}>{fmtEur(p.revenue)}</Text>
-              <Text style={[S.tblCell, { width: '11%', textAlign: 'right', fontFamily: 'Helvetica-Bold', color: p.marginPct >= weightedMargin ? C.emerald : C.red }]}>
-                {fmtPct(p.marginPct)}
-              </Text>
-              <Text style={[S.tblCell, { width: '13%', textAlign: 'right', color: p.profit >= 0 ? C.emerald : C.red }]}>{fmtEur(p.profit)}</Text>
-              <Text style={[S.tblCell, { width: '9%', textAlign: 'center', fontFamily: 'Helvetica-Bold', color: SEG_FILL[p.segment] }]}>
-                {p.ratingComplessivo ?? p.segment}
-              </Text>
-            </View>
-          ))}
-          {products.length > 15 && (
-            <Text style={{ fontSize: 6.5, color: C.slate4, textAlign: 'center', marginTop: 5 }}>
-              +{products.length - 15} prodotti non mostrati
-            </Text>
-          )}
-
 
         </View>
 
