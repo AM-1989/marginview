@@ -295,22 +295,25 @@ export default function ABCMatrixPDF({
 
           </View>
 
-          {/* AI comment — below matrix on Page 1 */}
+          {/* AI comment — wrap={false} so it never splits across pages */}
           {aiComment && (
-            <View style={[S.aiBlock, { marginTop: 14 }]}>
-              <Text style={S.aiTitle}>Commento AI — Matrice ABC</Text>
-              <Text style={S.aiText}>{aiComment}</Text>
-              <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#1e293b' }}>
-                {([
-                  { label: 'Health Score',   v: `${health.total}/100` },
-                  { label: 'Margine Medio',  v: fmtPct(weightedMargin) },
-                  { label: 'Fatt. Rischio',  v: fmtPct(riskRevenuePct) },
-                ]).map(({ label, v }) => (
-                  <View key={label} style={{ flex: 1, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 6, color: '#475569', marginBottom: 2 }}>{label}</Text>
-                    <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate3 }}>{v}</Text>
-                  </View>
-                ))}
+            <View wrap={false} style={{ marginTop: 14 }}>
+              <Text style={S.secLabel2}>Analisi</Text>
+              <View style={S.aiBlock}>
+                <Text style={S.aiTitle}>Commento AI — Matrice ABC</Text>
+                <Text style={S.aiText}>{aiComment}</Text>
+                <View style={{ flexDirection: 'row', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.slate2 }}>
+                  {([
+                    { label: 'Health Score',   v: `${health.total}/100` },
+                    { label: 'Margine Medio',  v: fmtPct(weightedMargin) },
+                    { label: 'Fatt. Rischio',  v: fmtPct(riskRevenuePct) },
+                  ]).map(({ label, v }) => (
+                    <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 6, color: C.slate5, marginBottom: 2 }}>{label}</Text>
+                      <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.slate7 }}>{v}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
           )}

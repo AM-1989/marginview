@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { downloadPDF } from '../lib/exportPDF';
 import BalancePDF from '../lib/pdf/BalancePDF';
+import { downloadMd, mdToday } from '../lib/exportMarkdown';
 import { calculateBalanceKPIs } from '../lib/balanceAnalysis';
 import type { BalanceInputYear, BalanceKPI } from '../types';
 
@@ -247,6 +248,56 @@ export default function BalanceAnalysis() {
     DPO: +kpis[i].dpo.toFixed(0),
   })), [years, kpis]);
 
+  function handleExportMD() {
+    if (!selKpi || !selInput) return;
+    const fmtEur = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+    const fmtPct = (v: number) => `${isFinite(v) ? v.toFixed(1) : '—'}%`;
+    const fmtX   = (v: number) => isFinite(v) ? `${v.toFixed(1)}x` : '—';
+    const content = `# Analisi Bilancio — Anno ${selKpi.anno}
+> Generato da **Marginview** — ${mdToday()}
+
+## KPI Economici
+
+| Indicatore | Valore |
+|---|---|
+| Ricavi | ${fmtEur.format(selInput.ricavi)} |
+| EBITDA | ${fmtEur.format(selKpi.ebitda)} (${fmtPct(selKpi.ebitdaPerc)}) |
+| EBIT | ${fmtEur.format(selKpi.ebit)} (${fmtPct(selKpi.ebitPerc)}) |
+| Utile Netto | ${fmtEur.format(selKpi.utileNetto)} (${fmtPct(selKpi.utileNettoPerc)}) |
+
+## KPI Patrimoniali e Finanziari
+
+| Indicatore | Valore |
+|---|---|
+| ROE | ${fmtPct(selKpi.roe)} |
+| ROI | ${fmtPct(selKpi.roi)} |
+| PFN | ${fmtEur.format(selKpi.pfn)} |
+| PFN / EBITDA | ${isFinite(selKpi.pfnEbitda) ? fmtX(selKpi.pfnEbitda) : '—'} |
+
+## KPI Liquidità e Ciclo
+
+| Indicatore | Valore |
+|---|---|
+| Current Ratio | ${fmtX(selKpi.currentRatio)} |
+| DSO (giorni) | ${isFinite(selKpi.dso) ? selKpi.dso.toFixed(0) : '—'} gg |
+| DIO (giorni) | ${isFinite(selKpi.dio) ? selKpi.dio.toFixed(0) : '—'} gg |
+| DPO (giorni) | ${isFinite(selKpi.dpo) ? selKpi.dpo.toFixed(0) : '—'} gg |
+| CCC | ${isFinite(selKpi.ccc) ? selKpi.ccc.toFixed(0) : '—'} gg |
+| Free Cash Flow | ${fmtEur.format(selKpi.freeCashFlow)} |
+
+${kpis.length > 1 ? `## Serie Storica (${kpis.length} anni)
+
+| Anno | Ricavi | EBITDA % | ROE % | PFN/EBITDA |
+|---|---|---|---|---|
+${kpis.map((k, i) => `| ${k.anno} | ${fmtEur.format(years[i].ricavi)} | ${fmtPct(k.ebitdaPerc)} | ${fmtPct(k.roe)} | ${isFinite(k.pfnEbitda) ? fmtX(k.pfnEbitda) : '—'} |`).join('\n')}
+` : ''}
+## Commento AI
+
+${aiComment ?? '_Commento AI non disponibile._'}
+`;
+    downloadMd(content, `bilancio-${selKpi.anno}.md`);
+  }
+
   // ── Tab bar ───────────────────────────────────────────────────────────────
 
   const TABS: { id: Tab; label: string }[] = [
@@ -272,28 +323,36 @@ export default function BalanceAnalysis() {
           </div>
         </div>
         {tab === 'dashboard' && selKpi && selInput && (
-          <button
-            onClick={async () => {
-              if (exportingPdf) return;
-              setExportingPdf(true);
-              try {
-                await downloadPDF(
-                  <BalancePDF
-                    kpis={kpis}
-                    inputs={years}
-                    selKpi={selKpi}
-                    selInput={selInput}
-                    aiComment={aiComment}
-                  />,
-                  `bilancio-${selKpi.anno}.pdf`,
-                );
-              } finally { setExportingPdf(false); }
-            }}
-            disabled={exportingPdf}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
-          >
-            <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (exportingPdf) return;
+                setExportingPdf(true);
+                try {
+                  await downloadPDF(
+                    <BalancePDF
+                      kpis={kpis}
+                      inputs={years}
+                      selKpi={selKpi}
+                      selInput={selInput}
+                      aiComment={aiComment}
+                    />,
+                    `bilancio-${selKpi.anno}.pdf`,
+                  );
+                } finally { setExportingPdf(false); }
+              }}
+              disabled={exportingPdf}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
+            </button>
+            <button
+              onClick={handleExportMD}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+            >
+              <FileDown className="w-4 h-4" /> Esporta MD
+            </button>
+          </div>
         )}
       </div>
 

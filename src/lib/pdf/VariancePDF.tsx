@@ -241,13 +241,13 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment }: Va
 
           {/* ── Commento AI ───────────────────────────────────────────────── */}
           {aiComment && (
-            <>
+            <View wrap={false}>
               <Text style={[S.sectionLabel, { marginTop: 14 }]}>Analisi</Text>
               <View style={S.aiBlock}>
                 <Text style={S.aiTitle}>Commento AI — Varianza Marginalità</Text>
                 <Text style={S.aiText}>{aiComment}</Text>
               </View>
-            </>
+            </View>
           )}
 
         </View>

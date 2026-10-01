@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { downloadPDF } from '../lib/exportPDF';
 import VariancePDF from '../lib/pdf/VariancePDF';
+import { downloadMd, mdToday } from '../lib/exportMarkdown';
 import {
   parseExcelToVarRows, extractPeriods, extractFilterOptions,
   filterRowsByPeriodAndFilters, computeVarianceEffects,
@@ -345,6 +346,60 @@ interface HierCatNode     { categoria: string; bridge: GroupBridgeResult; subcat
 interface HierSubcatNode  { subcat: string;    bridge: GroupBridgeResult; referenze: HierLeafNode[]     }
 interface HierLeafNode    { referenza: string; label: string; bridge: GroupBridgeResult }
 
+function exportVarianceMarkdown(
+  effects: EffectsResult,
+  p1Label: string,
+  p2Label: string,
+  aiComment: string | null,
+) {
+  const pct  = (v: number | null) => v !== null && isFinite(v) ? `${(v * 100).toFixed(2)}%` : '-';
+  const pp   = (v: number) => isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : '-';
+  const eur  = (v: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
+  const delta = effects.marginPctP2 - effects.marginPctP1;
+  const md    = effects.mixDecomposition;
+  const mixPct = (v: number) => md.totale !== 0 ? `${(Math.abs(v / md.totale) * 100).toFixed(1)}%` : '—';
+
+  const content = `# Analisi Varianza Marginalità
+> Generato da **Marginview** — ${mdToday()}
+
+## Periodi a confronto
+
+| | ${p1Label} — Periodo Base | ${p2Label} — Periodo Confronto | Δ |
+|---|---|---|---|
+| **Margine %** | ${pct(effects.marginPctP1)} | ${pct(effects.marginPctP2)} | **${pp(delta)}** |
+| **Fatturato** | ${eur(effects.totalRev1)} | ${eur(effects.totalRev2)} | ${eur(effects.totalRev2 - effects.totalRev1)} |
+| **Margine €** | ${eur(effects.totalMargin1)} | ${eur(effects.totalMargin2)} | ${eur(effects.totalMargin2 - effects.totalMargin1)} |
+
+## Scomposizione effetti (punti percentuale di margine)
+
+| Effetto | Contributo (pp) | Descrizione |
+|---|---|---|
+| Volume | ${pp(effects.effVolume)} | Variazione quantità vendute |
+| Mix | ${pp(effects.effMix)} | Variazione composizione mix |
+| Prezzo | ${pp(effects.effPrezzo)} | Variazione prezzi di vendita |
+| Costo | ${pp(effects.effCosto)} | Variazione costi di acquisto |
+| **Totale** | **${pp(delta)}** | |
+
+## Decomposizione effetto Mix per dimensione
+
+| Dimensione | Contributo (pp) | % del Mix |
+|---|---|---|
+| Mix Brand | ${pp(md.brand)} | ${mixPct(md.brand)} |
+| Mix Categoria | ${pp(md.categoria)} | ${mixPct(md.categoria)} |
+| Mix Sottocategoria | ${pp(md.sottocategoria)} | ${mixPct(md.sottocategoria)} |
+| Mix Formato | ${pp(md.formato)} | ${mixPct(md.formato)} |
+| Residuo (referenze) | ${pp(md.residuo)} | ${mixPct(md.residuo)} |
+| **Totale Effetto Mix** | **${pp(md.totale)}** | 100% |
+
+## Commento AI
+
+${aiComment ?? '_Commento AI non disponibile._'}
+`;
+
+  const slug = `${p1Label}-vs-${p2Label}`.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+  downloadMd(content, `varianza-analisi-${slug}.md`);
+}
+
 const fmtPctV = (v: number | null) =>
   v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
 
@@ -367,7 +422,7 @@ function BridgeCell({ v, alwaysZero = false }: { v: number; alwaysZero?: boolean
 
 function CosPctCell({ v, py = 'py-2.5', size = '' }: { v: number | null; py?: string; size?: string }) {
   return (
-    <td className={`px-3 ${py} tabular-nums text-right bg-sky-100 text-slate-900 font-bold ${size}`}>
+    <td className={`px-3 ${py} tabular-nums text-right bg-slate-100 text-slate-800 font-bold ${size}`}>
       {fmtPctV(v)}
     </td>
   );
@@ -485,7 +540,7 @@ function HierarchicalBridgeTable({
               const isHighlight = h === 'Cos% P1' || h === 'Cos% P2';
               return (
                 <th key={h} className={`px-3 py-2.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap text-right first:text-left ${
-                  isHighlight ? 'bg-sky-200 text-slate-800' : 'bg-slate-50 text-slate-500'
+                  isHighlight ? 'bg-slate-200 text-slate-700' : 'bg-slate-50 text-slate-500'
                 }`}>
                   {h}
                 </th>
@@ -499,12 +554,12 @@ function HierarchicalBridgeTable({
             return (
               <Fragment key={canale}>
                 {/* ── Canale row ── */}
-                <tr className="bg-slate-950 hover:bg-slate-900 cursor-pointer transition-colors border-b border-slate-700"
+                <tr className="bg-slate-700 hover:bg-slate-600 cursor-pointer transition-colors border-b border-slate-500"
                     onClick={() => toggleCanale(canale)}>
-                  <td className="px-3 py-3 font-bold text-violet-300 text-[11px] uppercase tracking-widest">
+                  <td className="px-3 py-3 font-bold text-white text-[11px] uppercase tracking-widest">
                     <div className="flex items-center gap-1.5">
-                      {cnExp ? <ChevronDown className="w-4 h-4 text-violet-400 flex-shrink-0" />
-                             : <ChevronRight className="w-4 h-4 text-violet-400 flex-shrink-0" />}
+                      {cnExp ? <ChevronDown className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                             : <ChevronRight className="w-4 h-4 text-slate-300 flex-shrink-0" />}
                       {canale}
                     </div>
                   </td>
@@ -526,12 +581,12 @@ function HierarchicalBridgeTable({
                   const bExp = expandedBrands.has(bKey);
                   return (
                     <Fragment key={bKey}>
-                      <tr className="bg-slate-800 hover:bg-slate-700 cursor-pointer transition-colors border-b border-slate-600"
+                      <tr className="bg-slate-300 hover:bg-slate-200 cursor-pointer transition-colors border-b border-slate-300"
                           onClick={() => toggleBrand(bKey)}>
-                        <td className="px-3 py-2.5 font-bold text-white">
+                        <td className="px-3 py-2.5 font-bold text-slate-800">
                           <div className="flex items-center gap-1.5 pl-5">
-                            {bExp ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />}
+                            {bExp ? <ChevronDown className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                                  : <ChevronRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />}
                             {brand}
                           </div>
                         </td>
@@ -632,9 +687,9 @@ function HierarchicalBridgeTable({
           })}
 
           {/* ── Totale complessivo ── */}
-          <tr className="bg-blue-50 border-t-2 border-blue-200">
+          <tr className="bg-slate-100 border-t-2 border-slate-300">
             <td className="px-3 py-3 font-bold text-slate-800">Totale complessivo</td>
-            <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP1)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-slate-200 text-slate-800 font-bold">{fmtPctV(effects.marginPctP1)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effVolume)}`}>{fmtEff(effects.effVolume)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.canale)}`}>{fmtEff(md.canale)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.brand)}`}>{fmtEff(md.brand)}</td>
@@ -643,7 +698,7 @@ function HierarchicalBridgeTable({
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(md.formato + md.residuo)}`}>{fmtEff(md.formato + md.residuo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effPrezzo)}`}>{fmtEff(effects.effPrezzo)}</td>
             <td className={`px-3 py-3 tabular-nums text-right font-bold ${clrEff(effects.effCosto)}`}>{fmtEff(effects.effCosto)}</td>
-            <td className="px-3 py-3 tabular-nums text-right bg-sky-200 text-slate-900 font-bold">{fmtPctV(effects.marginPctP2)}</td>
+            <td className="px-3 py-3 tabular-nums text-right bg-slate-200 text-slate-800 font-bold">{fmtPctV(effects.marginPctP2)}</td>
           </tr>
         </tbody>
       </table>
@@ -963,6 +1018,12 @@ export default function VarianceAnalysis() {
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
               >
                 <FileDown className="w-4 h-4" /> Esporta Excel
+              </button>
+              <button
+                onClick={() => exportVarianceMarkdown(effects, p1Keys.join(', '), p2Keys.join(', '), aiComment)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+              >
+                <FileDown className="w-4 h-4" /> Esporta MD
               </button>
               <button
                 onClick={async () => {

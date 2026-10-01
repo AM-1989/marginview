@@ -12,21 +12,21 @@ const SEG_ROW_BG: Record<SegmentKey, string> = {
   CA: 'FFE8F3ED', CB: 'FFF5F6FA', CC: 'FFFBEAE8',
 };
 
-// Variance: row bg by hierarchy level
+// Variance: row bg by hierarchy level — corporate gray scale
 const VAR_LEVEL_BG: Record<string, string> = {
   TOTALE:         NAVY,
-  CANALE:         'FFE8EDF4',
-  Brand:          'FFF0F4F8',
-  Categoria:      'FFF8FAFC',
+  CANALE:         'FFE2E8F0',   // slate-200
+  Brand:          'FFF1F5F9',   // slate-100
+  Categoria:      'FFF8FAFC',   // slate-50
   Sottocategoria: 'FFFFFFFF',
   Referenza:      'FFFFFFFF',
 };
 const VAR_LEVEL_FONT: Record<string, string> = {
   TOTALE:         WHITE,
-  CANALE:         'FF1E2761',
-  Brand:          'FF334155',
-  Categoria:      'FF475569',
-  Sottocategoria: 'FF64748B',
+  CANALE:         'FF1E293B',   // slate-900
+  Brand:          'FF334155',   // slate-700
+  Categoria:      'FF475569',   // slate-600
+  Sottocategoria: 'FF64748B',   // slate-500
   Referenza:      'FF64748B',
 };
 const VAR_LEVEL_BOLD: Record<string, boolean> = {
@@ -103,25 +103,11 @@ export async function exportABCToExcel(
   wb.modified = new Date();
   const ws    = wb.addWorksheet('Tutti i codici');
 
-  // ── Columns ─────────────────────────────────────────────────────────────────
-  const baseCols: Partial<ExcelJS.Column>[] = [
-    { header: 'Codice',                 width: 14 },
-    { header: 'Descrizione',            width: 40 },
-    { header: 'Brand',                  width: 16 },
-    { header: 'Categoria',              width: 22 },
-    { header: 'Fatturato',              width: 15 },
-    { header: 'Margine %',              width: 10 },
-    { header: 'Margine (€)',            width: 13 },
-    { header: 'Rating Fatturato',       width: 15 },
-    { header: 'Rating Margine',         width: 15 },
-    { header: 'Blocco (Fatt.×Marg.)',   width: 16 },
-  ];
-  const giaCols: Partial<ExcelJS.Column>[] = [
-    { header: 'Rating Rotazione',        width: 14 },
-    { header: 'Giacenza magazzino (€)',  width: 16 },
-    { header: 'Rating complessivo',      width: 16 },
-  ];
-  ws.columns = hasGiacenza ? [...baseCols, ...giaCols] : baseCols;
+  // ── Column widths (no header — we write headers manually in row 3) ───────────
+  const baseWidths = [14, 40, 16, 22, 15, 10, 13, 15, 15, 16];
+  const giaWidths  = [14, 16, 16];
+  const colWidths  = hasGiacenza ? [...baseWidths, ...giaWidths] : baseWidths;
+  colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
   const totalCols  = hasGiacenza ? 13 : 10;
   const lastColLtr = colLetter(totalCols);
@@ -139,10 +125,15 @@ export async function exportABCToExcel(
   applySubtitleCell(ws.getCell('A2'));
 
   // ── Row 3: Header ────────────────────────────────────────────────────────────
-  const headers = (ws.columns as ExcelJS.Column[]).map(c => c.header as string);
+  const baseHeaders = ['Codice', 'Descrizione', 'Brand', 'Categoria', 'Fatturato', 'Margine %', 'Margine (€)', 'Rating Fatturato', 'Rating Margine', 'Blocco (Fatt.×Marg.)'];
+  const giaHeaders  = ['Rating Rotazione', 'Giacenza magazzino (€)', 'Rating complessivo'];
+  const headers     = hasGiacenza ? [...baseHeaders, ...giaHeaders] : baseHeaders;
   ws.addRow(headers);
   ws.getRow(3).height = 27.75;
   ws.getRow(3).eachCell(cell => applyHeaderCell(cell));
+
+  // ── Autofilter on header row ──────────────────────────────────────────────────
+  ws.autoFilter = { from: 'A3', to: `${lastColLtr}3` };
 
   // ── Data rows (from row 4) ───────────────────────────────────────────────────
   for (const p of sorted) {
@@ -218,20 +209,9 @@ export async function exportVarianceToExcel(
   wb.modified = new Date();
   const ws    = wb.addWorksheet('Bridge');
 
-  ws.columns = [
-    { header: 'Livello',         width: 14 },
-    { header: 'Etichetta',       width: 40 },
-    { header: 'Cos% P1',         width: 10 },
-    { header: 'Volume',          width: 10 },
-    { header: 'Mix Canale',      width: 11 },
-    { header: 'Mix Brand',       width: 11 },
-    { header: 'Mix Cat.',        width: 11 },
-    { header: 'Mix Sottocat.',   width: 12 },
-    { header: 'Mix Ref.',        width: 11 },
-    { header: 'Price',           width: 10 },
-    { header: 'Costo',           width: 10 },
-    { header: 'Cos% P2',         width: 10 },
-  ];
+  // ── Column widths (no header — written manually in row 3) ───────────────────
+  const colWidths = [14, 40, 10, 10, 11, 11, 11, 12, 11, 10, 10, 10];
+  colWidths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 
   // ── Row 1: Title ─────────────────────────────────────────────────────────────
   ws.addRow([`Analisi Varianza Margine — Effetti sul Bridge`]);
@@ -246,10 +226,13 @@ export async function exportVarianceToExcel(
   applySubtitleCell(ws.getCell('A2'));
 
   // ── Row 3: Header ────────────────────────────────────────────────────────────
-  const headers = (ws.columns as ExcelJS.Column[]).map(c => c.header as string);
+  const headers = ['Livello', 'Etichetta', 'Cos% P1', 'Volume', 'Mix Canale', 'Mix Brand', 'Mix Cat.', 'Mix Sottocat.', 'Mix Ref.', 'Price', 'Costo', 'Cos% P2'];
   ws.addRow(headers);
   ws.getRow(3).height = 27.75;
   ws.getRow(3).eachCell(cell => applyHeaderCell(cell));
+
+  // ── Autofilter on header row ──────────────────────────────────────────────────
+  ws.autoFilter = { from: 'A3', to: 'L3' };
 
   // ── Data rows ────────────────────────────────────────────────────────────────
   for (const row of rows) {

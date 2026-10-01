@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { downloadPDF } from '../lib/exportPDF';
 import ABCMatrixPDF, { type EnrichedAction } from '../lib/pdf/ABCMatrixPDF';
+import { downloadMd, mdToday } from '../lib/exportMarkdown';
 import {
   calculate, parseGenericRows, whatIfSimulate,
   aggregateByCategory, SEGMENTS,
@@ -105,6 +106,102 @@ function ProductCard({ p }: { p: ClassifiedRow }) {
       )}
     </div>
   );
+}
+
+// ── MD export ─────────────────────────────────────────────────────────────────
+function exportABCMarkdown(
+  products:       ClassifiedRow[],
+  matrix:         Record<SegmentKey, { count: number; revenue: number; revenuePct: number }>,
+  totalRevenue:   number,
+  totalProfit:    number,
+  weightedMargin: number,
+  gini:           number,
+  paretoIndex:    number,
+  starRevenuePct: number,
+  riskRevenuePct: number,
+  belowAvgCount:  number,
+  health:         { total: number; diversification: number; starScore: number; riskScore: number; profitability: number; resilience: number },
+  enrichedActions: { n: number; priority: string; title: string; description: string; impact: number; products: ClassifiedRow[] }[],
+  categories:     { category: string; revenue: number; marginPct: number }[],
+  aiComment:      string | null,
+) {
+  const eur = (v: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
+  const pct = (v: number) => `${isFinite(v) ? v.toFixed(1) : '0.0'}%`;
+
+  const SEGS: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
+
+  const matrixTable = `| | Margine A | Margine B | Margine C |
+|---|---|---|---|
+| **Fatt. A** | AA: ${matrix.AA.count} prod. (${pct(matrix.AA.revenuePct)} fatt.) | AB: ${matrix.AB.count} prod. (${pct(matrix.AB.revenuePct)} fatt.) | AC: ${matrix.AC.count} prod. (${pct(matrix.AC.revenuePct)} fatt.) |
+| **Fatt. B** | BA: ${matrix.BA.count} prod. (${pct(matrix.BA.revenuePct)} fatt.) | BB: ${matrix.BB.count} prod. (${pct(matrix.BB.revenuePct)} fatt.) | BC: ${matrix.BC.count} prod. (${pct(matrix.BC.revenuePct)} fatt.) |
+| **Fatt. C** | CA: ${matrix.CA.count} prod. (${pct(matrix.CA.revenuePct)} fatt.) | CB: ${matrix.CB.count} prod. (${pct(matrix.CB.revenuePct)} fatt.) | CC: ${matrix.CC.count} prod. (${pct(matrix.CC.revenuePct)} fatt.) |`;
+
+  const segDetail = SEGS.filter(k => matrix[k].count > 0).map(k => {
+    const top3 = products.filter(p => p.segment === k).sort((a, b) => b.revenue - a.revenue).slice(0, 3);
+    return `### ${k} (${matrix[k].count} prodotti — ${pct(matrix[k].revenuePct)} del fatturato — ${eur(matrix[k].revenue)})
+${top3.map(p => `- **${p.id}** ${p.name} · ${eur(p.revenue)} · ${pct(p.marginPct)}`).join('\n')}${matrix[k].count > 3 ? `\n- _(+ altri ${matrix[k].count - 3})_` : ''}`;
+  }).join('\n\n');
+
+  const topCats = [...categories].sort((a, b) => b.revenue - a.revenue).slice(0, 10)
+    .map(c => `| ${c.category} | ${eur(c.revenue)} | ${pct(c.marginPct)} |`).join('\n');
+
+  const actionItems = enrichedActions.map(a =>
+    `### ${a.n}. ${a.title} _(priorità: ${a.priority})_\n${a.description}\n- **Impatto stimato:** ${eur(a.impact)}\n- **Prodotti coinvolti:** ${a.products.length}\n- Top prodotti: ${a.products.slice(0, 3).map(p => `${p.id} (${pct(p.marginPct)})`).join(', ')}`
+  ).join('\n\n');
+
+  const content = `# Matrice ABC — Analisi Fatturato × Margine
+> Generato da **Marginview** — ${mdToday()}
+
+## KPI Principali
+
+| Indicatore | Valore |
+|---|---|
+| Prodotti analizzati | ${products.length} |
+| Categorie | ${categories.length} |
+| Fatturato totale | ${eur(totalRevenue)} |
+| Margine medio ponderato | ${pct(weightedMargin)} |
+| Profitto totale | ${eur(totalProfit)} |
+| Prodotti Star (AA) | ${matrix.AA.count} (${pct(starRevenuePct)} del fatturato) |
+| Fatturato a rischio (AC/BC/CC) | ${pct(riskRevenuePct)} |
+| Prodotti sotto media margine | ${belowAvgCount} |
+| Health Score | ${health.total}/100 |
+| Indice di Gini | ${gini.toFixed(2)} |
+| Indice Pareto | ${pct(paretoIndex)} dei prodotti = 80% del fatturato |
+
+## Matrice 3×3
+
+${matrixTable}
+
+## Dettaglio per segmento
+
+${segDetail}
+
+## Health Score — Sottoindicatori
+
+| Dimensione | Score |
+|---|---|
+| Diversificazione | ${health.diversification}/100 |
+| Prodotti Star | ${health.starScore}/100 |
+| Esposizione Rischio | ${health.riskScore}/100 |
+| Profittabilità | ${health.profitability}/100 |
+| Resilienza | ${health.resilience}/100 |
+
+## Top 10 Categorie per Fatturato
+
+| Categoria | Fatturato | Margine % |
+|---|---|---|
+${topCats}
+
+## Action Items (${enrichedActions.length} azioni)
+
+${actionItems || '_Nessuna azione disponibile._'}
+
+## Commento AI
+
+${aiComment ?? '_Commento AI non disponibile._'}
+`;
+
+  downloadMd(content, `abc-analisi-${new Date().toISOString().slice(0, 10)}.md`);
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -451,6 +548,12 @@ export default function ABCMatrix() {
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
             <FileDown className="w-4 h-4" /> {exportingPdf ? 'Esportando…' : 'Esporta PDF'}
+          </button>
+          <button
+            onClick={() => exportABCMarkdown(products, matrix, totalRevenue, totalProfit, weightedMargin, gini, paretoIndex, starRevenuePct, riskRevenuePct, belowAvgCount, health, enrichedActions, categories, aiComment)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
+          >
+            <FileDown className="w-4 h-4" /> Esporta MD
           </button>
           <button
             onClick={() => { setRows(null); setSelectedCell(null); }}
