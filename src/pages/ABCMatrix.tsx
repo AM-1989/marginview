@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { exportABCToExcel } from '../lib/exportExcelStyled';
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
@@ -339,62 +340,8 @@ export default function ABCMatrix() {
     finally { setLoadingFile(false); }
   }
 
-  function handleExportExcel() {
-    const SEGMENT_ORDER: SegmentKey[] = ['AA','AB','AC','BA','BB','BC','CA','CB','CC'];
-
-    // Sort: by segment (AA→CC), then by revenue descending within each block
-    const sorted = [...products].sort((a, b) => {
-      const si = SEGMENT_ORDER.indexOf(a.segment) - SEGMENT_ORDER.indexOf(b.segment);
-      return si !== 0 ? si : b.revenue - a.revenue;
-    });
-
-    const rotLabel = (r: typeof products[0]) =>
-      r.giorniGiacenza !== undefined ? `${r.giorniGiacenza.toFixed(0)} gg` : '-';
-
-    const exportRows = sorted.map(p => {
-      const row: Record<string, string | number> = {
-        'Codice':                p.id      || '-',
-        'Descrizione':           p.name    || '-',
-        'Brand':                 p.brand   || '-',
-        'Categoria':             p.category || '-',
-        'Fatturato':             p.revenue,
-        'Margine %':             p.marginPct / 100,   // decimal fraction → formattato 0.0% da SheetJS
-        'Margine (€)':           p.profit,
-        'Rating Fatturato':      p.ratingRevenue,
-        'Rating Margine':        p.ratingMargin,
-        'Blocco (Fatt.×Marg.)':  p.segment,
-      };
-      if (hasGiacenza) {
-        row['Rating Rotazione']        = rotLabel(p);
-        row['Giacenza magazzino (€)']  = p.giacenza    ?? '-';
-        row['Giorni di Giacenza']      = p.giorniGiacenza !== undefined ? +p.giorniGiacenza.toFixed(0) : '-';
-        row['Rating complessivo']      = p.ratingComplessivo ?? '-';
-      } else {
-        row['Rating complessivo']      = `${p.ratingRevenue}${p.ratingMargin}`;
-      }
-      return row;
-    });
-
-    const totalProducts = exportRows.length;
-    const wb = XLSX.utils.book_new();
-
-    // Title rows + data
-    const wsData: unknown[][] = [
-      [`Tutti i codici · elenco completo con rating  ·  ${totalProducts} codici`],
-      [`Ordinato per blocco Fatturato×Margine (AA → CC) e, all'interno di ognuno, per fatturato decrescente.`],
-      Object.keys(exportRows[0] ?? {}),
-      ...exportRows.map(r => Object.values(r)),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Apply percentage format to the Margine % column (col index 5 = F), data starts at row index 3
-    for (let i = 0; i < sorted.length; i++) {
-      const ref = XLSX.utils.encode_cell({ r: 3 + i, c: 5 });
-      if (ws[ref]) ws[ref].z = '0.0%';
-    }
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Tutti i codici');
-    XLSX.writeFile(wb, 'analisi-abc.xlsx');
+  async function handleExportExcel() {
+    await exportABCToExcel(products, hasGiacenza);
   }
 
   async function handleExportPDF() {

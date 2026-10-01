@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect, Fragment } from 'rea
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import * as XLSX from 'xlsx';
+import { exportVarianceToExcel, type VarianceBridgeRow } from '../lib/exportExcelStyled';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -246,12 +247,11 @@ function CatDriverCard({ cat, rank }: { cat: CatDriver; rank: number }) {
 
 // ─── Bridge table Excel export ────────────────────────────────────────────────
 
-function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p1Label: string, p2Label: string) {
-  const fmtPP  = (v: number) => !isFinite(v) || Math.abs(v) < 5e-5 ? '0,00%' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
-  const fmtPV  = (v: number | null) => v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
+async function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p1Label: string, p2Label: string) {
+  const fmtPP = (v: number) => !isFinite(v) || Math.abs(v) < 5e-5 ? '0.00%' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+  const fmtPV = (v: number | null) => v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
 
-  type XlsRow = Record<string, string | number>;
-  const rows: XlsRow[] = [];
+  const rows: VarianceBridgeRow[] = [];
 
   const addRow = (
     livello: string, label: string,
@@ -261,22 +261,22 @@ function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p
     price: number, costo: number,
   ) => {
     rows.push({
-      'Livello':     livello,
-      'Etichetta':   label,
-      'Cos% P1':     fmtPV(cosP1),
-      'Volume':      fmtPP(vol),
-      'Mix Canale':  fmtPP(mixCanale),
-      'Mix Brand':   fmtPP(mixBrand),
-      'Mix Cat.':    fmtPP(mixCat),
+      'Livello':       livello,
+      'Etichetta':     label,
+      'Cos% P1':       fmtPV(cosP1),
+      'Volume':        fmtPP(vol),
+      'Mix Canale':    fmtPP(mixCanale),
+      'Mix Brand':     fmtPP(mixBrand),
+      'Mix Cat.':      fmtPP(mixCat),
       'Mix Sottocat.': fmtPP(mixSubcat),
-      'Mix Ref.':    fmtPP(mixRef),
-      'Price':       fmtPP(price),
-      'Costo':       fmtPP(costo),
-      'Cos% P2':     fmtPV(cosP2),
+      'Mix Ref.':      fmtPP(mixRef),
+      'Price':         fmtPP(price),
+      'Costo':         fmtPP(costo),
+      'Cos% P2':       fmtPV(cosP2),
     });
   };
 
-  // Build hierarchy — same grouping as HierarchicalBridgeTable
+  // Build hierarchy
   const canaleMap = new Map<string, ComparedLine[]>();
   for (const l of allLines) {
     const cn = l.canale || '-';
@@ -317,9 +317,9 @@ function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p
           for (const l of sLines) { const r = l.codice || l.descrizione || '-'; if (!refMap.has(r)) refMap.set(r, []); refMap.get(r)!.push(l); }
 
           for (const [referenza, rLines] of refMap.entries()) {
-            const rb = computeGroupBridge(rLines);
+            const rb    = computeGroupBridge(rLines);
             const first = rLines[0];
-            const lbl = first.codice ? `${first.codice}${first.descrizione ? ' — ' + first.descrizione : ''}` : first.descrizione || referenza;
+            const lbl   = first.codice ? `${first.codice}${first.descrizione ? ' — ' + first.descrizione : ''}` : first.descrizione || referenza;
             addRow('Referenza', `        ${lbl}`, rb.cosP1, rb.cosP2,
               rb.effVolume, 0, 0, 0, 0, 0, rb.effPrezzo, rb.effCosto);
           }
@@ -332,23 +332,7 @@ function exportBridgeToExcel(effects: EffectsResult, allLines: ComparedLine[], p
   addRow('TOTALE', 'Totale complessivo', effects.marginPctP1, effects.marginPctP2,
     effects.effVolume, md.canale, md.brand, md.categoria, md.sottocategoria, md.formato + md.residuo, effects.effPrezzo, effects.effCosto);
 
-  const wb = XLSX.utils.book_new();
-
-  const headers = Object.keys(rows[0] ?? {});
-  const wsData: unknown[][] = [
-    [`Analisi Varianza Margine — Effetti sul Bridge`],
-    [`${p1Label} → ${p2Label}  ·  ${rows.length} righe`],
-    headers,
-    ...rows.map(r => headers.map(h => r[h])),
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-  ws['!cols'] = [
-    { wch: 14 }, { wch: 40 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-    { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
-  ];
-
-  XLSX.utils.book_append_sheet(wb, ws, 'Bridge');
-  XLSX.writeFile(wb, 'varianza-bridge.xlsx');
+  await exportVarianceToExcel(rows, p1Label, p2Label);
 }
 
 // ─── HierarchicalBridgeTable ──────────────────────────────────────────────────
@@ -975,7 +959,7 @@ export default function VarianceAnalysis() {
           {canShowResults && effects && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => exportBridgeToExcel(effects, effects.lines, p1Keys.join(', '), p2Keys.join(', '))}
+                onClick={() => void exportBridgeToExcel(effects, effects.lines, p1Keys.join(', '), p2Keys.join(', '))}
                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg bg-white hover:bg-slate-50 transition-colors"
               >
                 <FileDown className="w-4 h-4" /> Esporta Excel

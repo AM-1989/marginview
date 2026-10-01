@@ -94,9 +94,18 @@ const S = StyleSheet.create({
   tblCell:  { fontSize: 7, color: C.slate7 },
 
   // Comments
-  aiBlock:   { backgroundColor: C.dark, borderRadius: 8, padding: 12 },
-  aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 6 },
-  aiText:    { fontSize: 7, color: '#94a3b8', lineHeight: 1.6 },
+  aiBlock:   { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
+  aiTitle:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.slate7, marginBottom: 6 },
+  aiText:    { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
+
+  // Header / footer overrides (no dark bg)
+  header:      { backgroundColor: C.slate1, paddingHorizontal: 32, paddingVertical: 18, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderBottomWidth: 1, borderBottomColor: C.slate2 },
+  headerBrand: { fontFamily: 'Helvetica-Bold', fontSize: 10, color: C.slate5, letterSpacing: 2, marginBottom: 3 },
+  headerTitle: { fontFamily: 'Helvetica-Bold', fontSize: 16, color: C.slate7 },
+  headerSub:   { fontSize: 8, color: C.slate5, marginTop: 3 },
+  footer:      { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: C.slate1, borderTopWidth: 1, borderTopColor: C.slate2, paddingHorizontal: 32, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  footerBrand: { fontSize: 7, color: C.slate5, fontFamily: 'Helvetica-Bold' },
+  secLabel2:   { fontFamily: 'Helvetica-Bold', fontSize: 6.5, color: '#64748b', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 7, marginTop: 18 },
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -117,14 +126,14 @@ function HealthBar({ score, color }: { score: number; color: string }) {
 
 function PdfHeader({ subtitle }: { subtitle: string }) {
   return (
-    <View style={base.header}>
+    <View style={S.header}>
       <View style={base.headerLeft}>
-        <Text style={base.headerBrand}>MARGINVIEW</Text>
-        <Text style={base.headerTitle}>{subtitle}</Text>
-        <Text style={base.headerSub}>Analisi Fatturato × Margine · Classificazione Prodotti</Text>
+        <Text style={S.headerBrand}>MARGINVIEW</Text>
+        <Text style={S.headerTitle}>{subtitle}</Text>
+        <Text style={S.headerSub}>Analisi Fatturato × Margine · Classificazione Prodotti</Text>
       </View>
       <View style={base.headerRight}>
-        <Text style={base.headerDate}>{today()}</Text>
+        <Text style={[base.headerDate, { color: C.slate5 }]}>{today()}</Text>
       </View>
     </View>
   );
@@ -132,8 +141,8 @@ function PdfHeader({ subtitle }: { subtitle: string }) {
 
 function PdfFooter() {
   return (
-    <View style={base.footer} fixed>
-      <Text style={base.footerBrand}>MARGINVIEW</Text>
+    <View style={S.footer} fixed>
+      <Text style={S.footerBrand}>MARGINVIEW</Text>
       <Text style={base.footerText}>Matrice ABC — Documento riservato</Text>
       <Text style={base.footerText} render={({ pageNumber, totalPages }) => `Pag. ${pageNumber} / ${totalPages}`} />
     </View>
@@ -183,7 +192,7 @@ export default function ABCMatrixPDF({
         <View style={base.body}>
 
           {/* 4 main KPIs */}
-          <Text style={base.sectionLabel}>Indicatori Principali</Text>
+          <Text style={S.secLabel2}>Indicatori Principali</Text>
           <View style={S.kpiRow}>
             {([
               { label: products.length === 1 ? 'Prodotto' : 'Prodotti', val: products.length.toString(), sub: `${[...new Set(products.map(p => p.category))].length} categorie`, clr: C.dark },
@@ -200,7 +209,7 @@ export default function ABCMatrixPDF({
           </View>
 
           {/* 5 secondary KPIs */}
-          <Text style={base.sectionLabel}>Metriche di Portafoglio</Text>
+          <Text style={S.secLabel2}>Metriche di Portafoglio</Text>
           <View style={S.secRow}>
             {([
               { label: 'Gini',           val: gini.toFixed(2),       clr: gini > 0.6 ? C.red : C.emerald },
@@ -217,7 +226,7 @@ export default function ABCMatrixPDF({
           </View>
 
           {/* Matrix + Health side by side */}
-          <Text style={base.sectionLabel}>Matrice Fatturato × Margine</Text>
+          <Text style={S.secLabel2}>Matrice Fatturato × Margine</Text>
           <View style={S.twoCol}>
 
             {/* 3×3 grid */}
@@ -256,7 +265,7 @@ export default function ABCMatrixPDF({
 
             {/* Health score panel */}
             <View style={[S.healthWrap, base.card]}>
-              <Text style={[base.sectionLabel, { marginTop: 0 }]}>Health Score</Text>
+              <Text style={[S.secLabel2, { marginTop: 0 }]}>Health Score</Text>
               <Text style={[S.healthScore, { color: healthClr(health.total) }]}>{health.total}</Text>
               <Text style={S.healthGrade}>
                 {health.total >= 80 ? 'A — Eccellente' : health.total >= 65 ? 'B — Buono' : health.total >= 45 ? 'C — Da migliorare' : 'D — Critico'}
@@ -320,7 +329,7 @@ export default function ABCMatrixPDF({
           {/* Action Items */}
           {enrichedActions.length > 0 && (
             <>
-              <Text style={base.sectionLabel}>
+              <Text style={S.secLabel2}>
                 Action Items · {enrichedActions.length} azioni · Impatto stimato: {fmtEur(totalImpact)}
               </Text>
               {enrichedActions.slice(0, 5).map(a => (
@@ -357,7 +366,7 @@ export default function ABCMatrixPDF({
           )}
 
           {/* Top Products Table */}
-          <Text style={base.sectionLabel}>Top {top15.length} Prodotti per Fatturato</Text>
+          <Text style={S.secLabel2}>Top {top15.length} Prodotti per Fatturato</Text>
           <View style={S.tblHead}>
             {([['22%','Codice'],['29%','Descrizione'],['16%','Fatturato'],['11%','Marg %'],['13%','Profitto'],['9%','Rating']] as [string,string][]).map(([w, h]) => (
               <Text key={h} style={[S.tblHCell, { width: w }]}>{h}</Text>
@@ -395,7 +404,7 @@ export default function ABCMatrixPDF({
           <PdfHeader subtitle="Dettaglio Giacenza e Rotazione" />
 
           <View style={base.body}>
-            <Text style={base.sectionLabel}>
+            <Text style={S.secLabel2}>
               Dettaglio giacenza e rotazione · {giacenzaProducts.length} prodotti con dati di magazzino
             </Text>
 
