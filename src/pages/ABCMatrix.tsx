@@ -331,7 +331,8 @@ export default function ABCMatrix() {
   const shownCats = catDir === 'top' ? topCats : btmCats;
 
   // ── Rotation stats (only when giacenza data is present) ───────────────────
-  const hasGiacenza = products.some(p => p.giacenza !== undefined);
+  const hasGiacenza  = products.some(p => p.giacenza !== undefined);
+  const hasRotazione = products.some(p => p.ratingRotazione !== undefined);
   const rotStats = useMemo(() => {
     const withRot  = products.filter(p => p.ratingRotazione);
     const totalRev = withRot.reduce((s, p) => s + p.revenue, 0);
@@ -438,7 +439,7 @@ export default function ABCMatrix() {
   }
 
   async function handleExportExcel() {
-    await exportABCToExcel(products, hasGiacenza);
+    await exportABCToExcel(products, hasGiacenza || hasRotazione);
   }
 
   async function handleExportPDF() {
@@ -744,8 +745,8 @@ export default function ABCMatrix() {
               : `Media aziendale ${weightedMargin.toFixed(1)}% · A ≥ ${(weightedMargin + thresholdA).toFixed(1)}% · C < ${(weightedMargin - thresholdC).toFixed(1)}%`}
           </p>
 
-          {/* Rotation thresholds — shown only when giacenza data is present */}
-          {products.some(p => p.giacenza !== undefined) && (
+          {/* Rotation thresholds — shown only when rotation data is present in the file */}
+          {hasRotazione && (
             <div className="border-t border-slate-100 pt-3 space-y-2">
               <p className="text-xs font-medium text-slate-600">Soglie Rotazione Magazzino (giorni)</p>
               <div className="grid grid-cols-2 gap-3">
@@ -893,8 +894,8 @@ export default function ABCMatrix() {
         </div>
       </div>
 
-      {/* ── Rotazione Magazzino KPI (solo se giacenza presente) ──────────────── */}
-      {hasGiacenza && (
+      {/* ── Rotazione Magazzino KPI (solo se dati rotazione presenti nel file) ── */}
+      {hasRotazione && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <h3 className="font-semibold text-[11px] uppercase tracking-wider text-slate-500 mb-4">Rotazione Magazzino</h3>
           <div className="grid grid-cols-3 gap-4">

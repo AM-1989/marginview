@@ -9,15 +9,16 @@ export type AbcRating = 'A' | 'B' | 'C';
 export type SegmentKey = 'AA'|'AB'|'AC'|'BA'|'BB'|'BC'|'CA'|'CB'|'CC';
 
 export interface AnalysisRow {
-  id:         string;
-  name:       string;
-  category:   string;
-  brand:      string;
-  revenue:    number;
-  cost:       number;   // total cost
-  profit:     number;
-  marginPct:  number;   // in percentage points (e.g. 10.9 for 10.9%)
-  giacenza?:  number;   // stock value in EUR (valore giacenza di magazzino)
+  id:              string;
+  name:            string;
+  category:        string;
+  brand:           string;
+  revenue:         number;
+  cost:            number;   // total cost
+  profit:          number;
+  marginPct:       number;   // in percentage points (e.g. 10.9 for 10.9%)
+  giacenza?:       number;   // stock value in EUR (valore giacenza di magazzino)
+  giorniGiacenza?: number;   // days of inventory — from input file only, never auto-computed
 }
 
 export type RotazioneRating = 'A' | 'B' | 'C';
@@ -27,10 +28,9 @@ export interface ClassifiedRow extends AnalysisRow {
   ratingRevenue:    AbcRating;
   ratingMargin:     AbcRating;
   segment:          SegmentKey;
-  rotazione?:       number;          // cost / giacenza (annual stock turns)
-  giorniGiacenza?:  number;          // giacenza * 365 / cost
-  ratingRotazione?: RotazioneRating; // A · veloce / B · media / C · lenta
-  ratingComplessivo?: string;        // e.g. "AAA", "AAB", "AA" (no giacenza)
+  rotazione?:       number;           // 365 / giorniGiacenza (turns/year) — derived when giorniGiacenza is present
+  ratingRotazione?: RotazioneRating;  // A · veloce / B · media / C · lenta
+  ratingComplessivo?: string;         // e.g. "AAA", "AAB", "AA" (no rotation)
 }
 
 export interface MatrixCell {
@@ -264,6 +264,7 @@ const COL_ALIASES: Record<string, string[]> = {
     'costo/unità', 'costo per unità', 'costo unit.',
   ],
   totalCost: [
+    'costo del venduto', 'costo venduto',
     'costo totale', 'costi totali', 'total cost', 'costo variabile totale',
     'costo', 'costi',
   ],
@@ -286,9 +287,15 @@ const COL_ALIASES: Record<string, string[]> = {
   ],
   brand: ['brand', 'marca'],
   giacenza: [
-    'giacenza di magazzino', 'giacenza magazzino',
+    'giacenza di magazzino (€)', 'giacenza di magazzino',
+    'giacenza magazzino (€)', 'giacenza magazzino',
     'giacenza', 'valore giacenza', 'valore magazzino',
     'stock value', 'inventory value', 'scorte',
+  ],
+  giorniGiacenza: [
+    'giorni di giacenza', 'giorni giacenza', 'giorni stock',
+    'giorni di stock', 'stock days', 'days on hand', 'doh',
+    'rotazione (giorni)', 'giacenza giorni',
   ],
 };
 
@@ -335,18 +342,19 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
   // ── 1. Detect columns ──────────────────────────────────────────────────────
   const headers = Object.keys(rows[0]);
   const C = {
-    id:          findCol(headers, COL_ALIASES.id),
-    name:        findCol(headers, COL_ALIASES.name),
-    revenue:     findCol(headers, COL_ALIASES.revenue),
-    quantity:    findCol(headers, COL_ALIASES.quantity),
-    unitCost:    findCol(headers, COL_ALIASES.unitCost),
-    totalCost:   findCol(headers, COL_ALIASES.totalCost),
-    marginPct:   findCol(headers, COL_ALIASES.marginPct),
-    marginEur:   findCol(headers, COL_ALIASES.marginEur),
-    marginAmbig: findCol(headers, COL_ALIASES.marginAmbig),
-    category:    findCol(headers, COL_ALIASES.category),
-    brand:       findCol(headers, COL_ALIASES.brand),
-    giacenza:    findCol(headers, COL_ALIASES.giacenza),
+    id:             findCol(headers, COL_ALIASES.id),
+    name:           findCol(headers, COL_ALIASES.name),
+    revenue:        findCol(headers, COL_ALIASES.revenue),
+    quantity:       findCol(headers, COL_ALIASES.quantity),
+    unitCost:       findCol(headers, COL_ALIASES.unitCost),
+    totalCost:      findCol(headers, COL_ALIASES.totalCost),
+    marginPct:      findCol(headers, COL_ALIASES.marginPct),
+    marginEur:      findCol(headers, COL_ALIASES.marginEur),
+    marginAmbig:    findCol(headers, COL_ALIASES.marginAmbig),
+    category:       findCol(headers, COL_ALIASES.category),
+    brand:          findCol(headers, COL_ALIASES.brand),
+    giacenza:       findCol(headers, COL_ALIASES.giacenza),
+    giorniGiacenza: findCol(headers, COL_ALIASES.giorniGiacenza),
   };
 
   dbg('Headers:', headers);
@@ -385,6 +393,14 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
     dbg(`Colonna "${C.marginPct}": scala ${pctScale}${pctScale === 'decimal' ? ' → valori ×100' : ''}`);
   }
 
+  // Mode A: pre-compute marginPct scale for per-row fallback.
+  // Needed when the template has both Costo del Venduto AND Margine % but a row only has Margine %.
+  let pctScaleA: 'decimal' | 'percentage' = 'percentage';
+  if (mode === 'A' && C.marginPct) {
+    const rawPcts = rows.map(r => parseAbcNum(r[C.marginPct!]));
+    pctScaleA = detectPctScale(rawPcts);
+  }
+
   let ambigIsDecimalPct = false;
   if (mode === 'ambig' && C.marginAmbig) {
     const rawAmbig = rows.map(r => parseAbcNum(r[C.marginAmbig!]));
@@ -395,7 +411,8 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
   // ── 4. Parse every row ────────────────────────────────────────────────────
   interface ParsedRow {
     id: string; name: string; category: string; brand: string;
-    revenue: number; cost: number; profit: number; giacenza?: number;
+    revenue: number; cost: number; profit: number;
+    giacenza?: number; giorniGiacenza?: number;
   }
 
   const parsed: ParsedRow[] = [];
@@ -433,9 +450,22 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
         const qty   = parseAbcNum(r[C.quantity]);
         if (unitC !== null && qty !== null) rawCost = unitC * qty;
       }
-      if (rawCost === null) { skippedNoCost++; continue; }
-      cost   = rawCost;
-      profit = rev - cost;
+      if (rawCost !== null) {
+        cost   = rawCost;
+        profit = rev - cost;
+      } else if (C.marginPct) {
+        // Cost column present but empty for this row — use Margine % as fallback.
+        // Handles templates where both columns exist but only one is filled per file.
+        const rawPct = parseAbcNum(r[C.marginPct]);
+        if (rawPct === null) { skippedNoCost++; continue; }
+        let mPct = rawPct;
+        if (pctScaleA === 'decimal') mPct = mPct * 100;
+        profit = rev * (mPct / 100);
+        cost   = rev - profit;
+      } else {
+        skippedNoCost++;
+        continue;
+      }
 
     } else if (mode === 'B') {
       const rawPct = parseAbcNum(C.marginPct ? r[C.marginPct] : null);
@@ -468,13 +498,14 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
       continue;
     }
 
-    const name     = C.name     ? String(r[C.name]     ?? '').trim() : rowId;
-    const category = C.category ? String(r[C.category] ?? '').trim() : '';
-    const brand    = C.brand    ? String(r[C.brand]    ?? '').trim() : '';
-    const giacenza = C.giacenza ? (parseAbcNum(r[C.giacenza]) ?? undefined) : undefined;
+    const name           = C.name     ? String(r[C.name]     ?? '').trim() : rowId;
+    const category       = C.category ? String(r[C.category] ?? '').trim() : '';
+    const brand          = C.brand    ? String(r[C.brand]    ?? '').trim() : '';
+    const giacenza       = C.giacenza       ? (parseAbcNum(r[C.giacenza])       ?? undefined) : undefined;
+    const giorniGiacenza = C.giorniGiacenza ? (parseAbcNum(r[C.giorniGiacenza]) ?? undefined) : undefined;
 
     // Include only rows with positive revenue (already checked above)
-    parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit, giacenza });
+    parsed.push({ id: rowId, name, category, brand, revenue: rev, cost, profit, giacenza, giorniGiacenza });
   }
 
   // ── 5. Aggregate by product ID (multi-period data) ────────────────────────
@@ -487,8 +518,9 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
       a.revenue += p.revenue;
       a.cost    += p.cost;
       a.profit  += p.profit;
-      // giacenza: overwrite with latest non-null value (point-in-time, not cumulative)
-      if (p.giacenza !== undefined) a.giacenza = p.giacenza;
+      // point-in-time fields: overwrite with latest non-null value (not cumulative)
+      if (p.giacenza       !== undefined) a.giacenza       = p.giacenza;
+      if (p.giorniGiacenza !== undefined) a.giorniGiacenza = p.giorniGiacenza;
     }
   }
 
@@ -496,15 +528,16 @@ export function parseGenericRows(rows: Record<string, unknown>[]): ParseResult {
   const result: AnalysisRow[] = [];
   for (const a of aggMap.values()) {
     result.push({
-      id:        a.id,
-      name:      a.name,
-      category:  a.category,
-      brand:     a.brand,
-      revenue:   a.revenue,
-      cost:      a.cost,
-      profit:    a.profit,
-      marginPct: a.revenue > 0 ? a.profit / a.revenue * 100 : 0,
-      giacenza:  a.giacenza,
+      id:              a.id,
+      name:            a.name,
+      category:        a.category,
+      brand:           a.brand,
+      revenue:         a.revenue,
+      cost:            a.cost,
+      profit:          a.profit,
+      marginPct:       a.revenue > 0 ? a.profit / a.revenue * 100 : 0,
+      giacenza:        a.giacenza,
+      giorniGiacenza:  a.giorniGiacenza,
     });
   }
 
@@ -665,10 +698,10 @@ export function calculate(
     const rM: AbcRating =
       r.marginPct >= sA ? 'A' :
       r.marginPct >= sC ? 'B' : 'C';
-    const rotazione      = r.giacenza && r.giacenza > 0 && r.cost > 0
-      ? r.cost / r.giacenza : undefined;
-    const giorniGiacenza = r.giacenza && r.giacenza > 0 && r.cost > 0
-      ? r.giacenza * 365 / r.cost : undefined;
+    // Rotation comes only from the explicit input column — never auto-derived from giacenza.
+    const giorniGiacenza = r.giorniGiacenza;
+    const rotazione      = giorniGiacenza !== undefined && giorniGiacenza > 0
+      ? 365 / giorniGiacenza : undefined;
     const ratingRotazione: RotazioneRating | undefined = giorniGiacenza !== undefined
       ? giorniGiacenza < rotazioneThresholdA ? 'A'
         : giorniGiacenza < rotazioneThresholdC ? 'B' : 'C'

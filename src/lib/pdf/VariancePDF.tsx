@@ -1,5 +1,7 @@
 import { Document, Page, View, Text, StyleSheet, Svg, Rect } from '@react-pdf/renderer';
 import type { EffectsResult } from '../varianceAnalysis';
+import { computeGroupBridge } from '../varianceAnalysis';
+import type { ComparedLine } from '../varianceAnalysis';
 import { C, base, fmtEur, today } from './pdfTheme';
 
 export interface VariancePDFProps {
@@ -16,9 +18,43 @@ const pp = (v: number): string =>
   isFinite(v) ? `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)} pp` : '-';
 const clr = (v: number) => v > 0 ? C.emerald : v < 0 ? C.red : C.slate5;
 
+// Bridge table formatters
+const fmtPP = (v: number): string =>
+  !isFinite(v) || Math.abs(v) < 5e-5 ? '0.00%' : `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+const fmtPV = (v: number | null): string =>
+  v === null || !isFinite(v) ? '-' : `${(v * 100).toFixed(2)}%`;
+
 // ── Corporate palette (light — no dark backgrounds) ───────────────────────────
 const CORP_LABEL = '#64748b';
 const CORP_TOTAL = '#64748b';
+
+// ── Bridge table level styles ─────────────────────────────────────────────────
+const LVL_BG: Record<string, string> = {
+  TOTALE:         '#1E2761',
+  CANALE:         '#C5DEC9',
+  Brand:          '#E8F3ED',
+  Categoria:      '#F2F9F3',
+  Sottocategoria: '#F8FCFA',
+  Referenza:      '#FFFFFF',
+};
+const LVL_FG: Record<string, string> = {
+  TOTALE:         '#FFFFFF',
+  CANALE:         '#1E2761',
+  Brand:          '#1E293B',
+  Categoria:      '#334155',
+  Sottocategoria: '#475569',
+  Referenza:      '#64748B',
+};
+const LVL_BOLD: Record<string, boolean> = {
+  TOTALE: true, CANALE: true, Brand: true,
+  Categoria: false, Sottocategoria: false, Referenza: false,
+};
+const LVL_INDENT: Record<string, number> = {
+  TOTALE: 0, CANALE: 0, Brand: 6, Categoria: 12, Sottocategoria: 18, Referenza: 24,
+};
+const LVL_FONT: Record<string, number> = {
+  TOTALE: 7, CANALE: 7, Brand: 6.5, Categoria: 6, Sottocategoria: 6, Referenza: 6,
+};
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 const S = StyleSheet.create({
@@ -65,7 +101,21 @@ const S = StyleSheet.create({
   aiBlock: { backgroundColor: C.white, borderWidth: 1, borderColor: C.slate2, borderRadius: 8, padding: 12 },
   aiTitle: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: C.slate7, marginBottom: 6 },
   aiText:  { fontSize: 7, color: C.slate6, lineHeight: 1.6 },
+
+  // Bridge table (landscape page)
+  bHeader:     { backgroundColor: C.slate1, paddingHorizontal: 24, paddingVertical: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', borderBottomWidth: 1, borderBottomColor: C.slate2 },
+  bBody:       { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 48 },
+  bTableHead:  { flexDirection: 'row', backgroundColor: '#1E2761', paddingVertical: 5, paddingHorizontal: 0, borderRadius: 4, marginBottom: 1 },
+  bHCell:      { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#FFFFFF', textTransform: 'uppercase', textAlign: 'right', paddingHorizontal: 3 },
+  bHCellLeft:  { fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#FFFFFF', textTransform: 'uppercase', paddingHorizontal: 3 },
+  bRow:        { flexDirection: 'row', paddingVertical: 3.5, paddingHorizontal: 0, borderBottomWidth: 0.5, borderBottomColor: C.slate2 },
+  bCell:       { fontSize: 6, textAlign: 'right', paddingHorizontal: 3 },
+  bCellLeft:   { fontSize: 6, paddingHorizontal: 3 },
 });
+
+// ── Bridge column widths (landscape usable ~793pt with 24pt padding each side) ─
+const COL_LABEL = 155;
+const COL_NUM   = 58;  // 10 numeric columns × 58 = 580; 155+580 = 735pt (fits A4 landscape 793pt)
 
 // ── Header ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +130,20 @@ function PdfHeader({ p1, p2 }: { p1: string; p2: string }) {
       <View style={base.headerRight}>
         <Text style={[base.headerDate, { color: C.slate3 }]}>{today()}</Text>
       </View>
+    </View>
+  );
+}
+
+// ── Bridge page compact header ────────────────────────────────────────────────
+function BridgeHeader({ p1, p2 }: { p1: string; p2: string }) {
+  return (
+    <View style={S.bHeader}>
+      <View>
+        <Text style={[S.headerBrand, { fontSize: 8 }]}>MARGINVIEW</Text>
+        <Text style={[S.headerTitle, { fontSize: 12 }]}>Bridge Gerarchico</Text>
+        <Text style={[S.headerSub, { fontSize: 7 }]}>{p1} → {p2} · Canale › Brand › Categoria › Sottocategoria › Referenza</Text>
+      </View>
+      <Text style={[base.headerDate, { color: C.slate4, fontSize: 7 }]}>{today()}</Text>
     </View>
   );
 }
@@ -120,6 +184,175 @@ function EffectBar({ label, value, maxAbs, isTotal = false }: {
   );
 }
 
+// ── Bridge table row ──────────────────────────────────────────────────────────
+
+interface BridgeRow {
+  level: 'TOTALE' | 'CANALE' | 'Brand' | 'Categoria' | 'Sottocategoria' | 'Referenza';
+  label: string;
+  cosP1: number | null;
+  cosP2: number | null;
+  volume:    number;
+  mixCanale: number;
+  mixBrand:  number;
+  mixCat:    number;
+  mixSubcat: number;
+  mixRef:    number;
+  price:     number;
+  costo:     number;
+}
+
+function BridgeTableRow({ row }: { row: BridgeRow }) {
+  const bg    = LVL_BG[row.level];
+  const fg    = LVL_FG[row.level];
+  const bold  = LVL_BOLD[row.level];
+  const fs    = LVL_FONT[row.level];
+  const ind   = LVL_INDENT[row.level];
+  const ff    = bold ? 'Helvetica-Bold' : 'Helvetica';
+
+  const numStyle = { fontSize: fs, fontFamily: ff, color: fg, textAlign: 'right' as const, paddingHorizontal: 3, width: COL_NUM };
+  const zeroClr  = '#CBD5E1';
+
+  const effCell = (v: number, alwaysZero = false) => {
+    if (alwaysZero) return (
+      <Text style={[numStyle, { color: zeroClr }]}>0.00%</Text>
+    );
+    const color = !isFinite(v) || Math.abs(v) < 5e-5 ? zeroClr : v > 0 ? '#059669' : '#DC2626';
+    return <Text style={[numStyle, { color, fontFamily: Math.abs(v) > 5e-5 ? 'Helvetica-Bold' : 'Helvetica' }]}>{fmtPP(v)}</Text>;
+  };
+
+  return (
+    <View wrap={false} style={[S.bRow, { backgroundColor: bg }]}>
+      <Text style={{ fontSize: fs, fontFamily: ff, color: fg, paddingLeft: 3 + ind, paddingRight: 3, width: COL_LABEL }}>
+        {row.label}
+      </Text>
+      {/* Cos% P1 */}
+      <Text style={[numStyle, { color: fg }]}>{fmtPV(row.cosP1)}</Text>
+      {/* Volume */}
+      {effCell(row.volume)}
+      {/* Mix Canale — only non-zero at TOTALE */}
+      {effCell(row.mixCanale, row.level !== 'TOTALE')}
+      {/* Mix Brand — zero at Referenza, Sottocategoria, Categoria */}
+      {effCell(row.mixBrand, row.level === 'Referenza' || row.level === 'Sottocategoria' || row.level === 'Categoria')}
+      {/* Mix Cat — zero at Referenza, Sottocategoria */}
+      {effCell(row.mixCat, row.level === 'Referenza' || row.level === 'Sottocategoria')}
+      {/* Mix Sottocat — zero at Referenza */}
+      {effCell(row.mixSubcat, row.level === 'Referenza')}
+      {/* Mix Ref */}
+      {effCell(row.mixRef)}
+      {/* Price */}
+      {effCell(row.price)}
+      {/* Costo */}
+      {effCell(row.costo)}
+      {/* Cos% P2 */}
+      <Text style={[numStyle, { color: fg }]}>{fmtPV(row.cosP2)}</Text>
+    </View>
+  );
+}
+
+// ── Build bridge rows from effects.lines ──────────────────────────────────────
+
+function buildBridgeRows(lines: ComparedLine[], effects: EffectsResult): BridgeRow[] {
+  const rows: BridgeRow[] = [];
+  const md = effects.mixDecomposition;
+
+  const canaleMap = new Map<string, ComparedLine[]>();
+  for (const l of lines) {
+    const cn = l.canale || '-';
+    if (!canaleMap.has(cn)) canaleMap.set(cn, []);
+    canaleMap.get(cn)!.push(l);
+  }
+
+  for (const [canale, cnLines] of canaleMap.entries()) {
+    const cnb = computeGroupBridge(cnLines);
+    rows.push({ level: 'CANALE', label: canale, cosP1: cnb.cosP1, cosP2: cnb.cosP2,
+      volume: cnb.effVolume, mixCanale: 0, mixBrand: cnb.effMixBrand,
+      mixCat: cnb.effMixCategoria, mixSubcat: cnb.effMixSottocategoria,
+      mixRef: cnb.effMixReferenza, price: cnb.effPrezzo, costo: cnb.effCosto });
+
+    const brandMap = new Map<string, ComparedLine[]>();
+    for (const l of cnLines) { const b = l.brand || '-'; if (!brandMap.has(b)) brandMap.set(b, []); brandMap.get(b)!.push(l); }
+
+    for (const [brand, bLines] of brandMap.entries()) {
+      const bb = computeGroupBridge(bLines);
+      rows.push({ level: 'Brand', label: brand, cosP1: bb.cosP1, cosP2: bb.cosP2,
+        volume: bb.effVolume, mixCanale: 0, mixBrand: 0,
+        mixCat: bb.effMixCategoria, mixSubcat: bb.effMixSottocategoria,
+        mixRef: bb.effMixReferenza, price: bb.effPrezzo, costo: bb.effCosto });
+
+      const catMap = new Map<string, ComparedLine[]>();
+      for (const l of bLines) { const c = l.categoria || '-'; if (!catMap.has(c)) catMap.set(c, []); catMap.get(c)!.push(l); }
+
+      for (const [categoria, cLines] of catMap.entries()) {
+        const cb = computeGroupBridge(cLines);
+        rows.push({ level: 'Categoria', label: categoria, cosP1: cb.cosP1, cosP2: cb.cosP2,
+          volume: cb.effVolume, mixCanale: 0, mixBrand: 0, mixCat: 0,
+          mixSubcat: cb.effMixSottocategoria, mixRef: cb.effMixReferenza,
+          price: cb.effPrezzo, costo: cb.effCosto });
+
+        const scMap = new Map<string, ComparedLine[]>();
+        for (const l of cLines) { const s = l.sottocategoria || '-'; if (!scMap.has(s)) scMap.set(s, []); scMap.get(s)!.push(l); }
+
+        for (const [subcat, sLines] of scMap.entries()) {
+          const sb = computeGroupBridge(sLines);
+          rows.push({ level: 'Sottocategoria', label: subcat, cosP1: sb.cosP1, cosP2: sb.cosP2,
+            volume: sb.effVolume, mixCanale: 0, mixBrand: 0, mixCat: 0, mixSubcat: 0,
+            mixRef: sb.effMixReferenza, price: sb.effPrezzo, costo: sb.effCosto });
+
+          const refMap = new Map<string, ComparedLine[]>();
+          for (const l of sLines) {
+            const r = l.codice || l.descrizione || '-';
+            if (!refMap.has(r)) refMap.set(r, []);
+            refMap.get(r)!.push(l);
+          }
+
+          for (const [, rLines] of refMap.entries()) {
+            const rb    = computeGroupBridge(rLines);
+            const first = rLines[0];
+            const label = first.codice
+              ? `${first.codice}${first.descrizione ? ' · ' + first.descrizione : ''}`
+              : first.descrizione || '-';
+            rows.push({ level: 'Referenza', label, cosP1: rb.cosP1, cosP2: rb.cosP2,
+              volume: rb.effVolume, mixCanale: 0, mixBrand: 0, mixCat: 0, mixSubcat: 0,
+              mixRef: 0, price: rb.effPrezzo, costo: rb.effCosto });
+          }
+        }
+      }
+    }
+  }
+
+  // TOTALE row at the bottom
+  rows.push({
+    level: 'TOTALE', label: 'Totale complessivo',
+    cosP1: effects.marginPctP1, cosP2: effects.marginPctP2,
+    volume: effects.effVolume, mixCanale: md.canale, mixBrand: md.brand,
+    mixCat: md.categoria, mixSubcat: md.sottocategoria,
+    mixRef: md.formato + md.residuo, price: effects.effPrezzo, costo: effects.effCosto,
+  });
+
+  return rows;
+}
+
+// ── Bridge table header row (fixed, repeated on each page) ───────────────────
+
+function BridgeTableHead() {
+  const hStyle = { fontSize: 5.5, fontFamily: 'Helvetica-Bold' as const, color: '#FFFFFF', textTransform: 'uppercase' as const, textAlign: 'right' as const, paddingHorizontal: 3, width: COL_NUM };
+  return (
+    <View style={[S.bTableHead, { flexDirection: 'row' }]}>
+      <Text style={{ fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#FFFFFF', textTransform: 'uppercase', paddingHorizontal: 3, width: COL_LABEL }}>Etichette di riga</Text>
+      <Text style={[hStyle, { textAlign: 'center' }]}>Cos%P1</Text>
+      <Text style={hStyle}>Volume</Text>
+      <Text style={hStyle}>Mix Can.</Text>
+      <Text style={hStyle}>Mix Brand</Text>
+      <Text style={hStyle}>Mix Cat.</Text>
+      <Text style={hStyle}>Mix Sub.</Text>
+      <Text style={hStyle}>Mix Ref.</Text>
+      <Text style={hStyle}>Price</Text>
+      <Text style={hStyle}>Costo</Text>
+      <Text style={[hStyle, { textAlign: 'center' }]}>Cos%P2</Text>
+    </View>
+  );
+}
+
 // ── Main document ─────────────────────────────────────────────────────────────
 
 export default function VariancePDF({ effects, p1Label, p2Label, aiComment }: VariancePDFProps) {
@@ -131,8 +364,12 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment }: Va
     Math.abs(delta), 0.001,
   );
 
+  const bridgeRows = buildBridgeRows(effects.lines, effects);
+
   return (
     <Document>
+
+      {/* ── Page 1: Summary ─────────────────────────────────────────────────── */}
       <Page size="A4" style={base.page}>
         <PdfHeader p1={p1Label} p2={p2Label} />
 
@@ -254,6 +491,21 @@ export default function VariancePDF({ effects, p1Label, p2Label, aiComment }: Va
 
         <PdfFooter p1={p1Label} p2={p2Label} />
       </Page>
+
+      {/* ── Page(s): Bridge Gerarchico ──────────────────────────────────────── */}
+      <Page size="A4" orientation="landscape" style={[base.page, { backgroundColor: C.bg }]}>
+        <BridgeHeader p1={p1Label} p2={p2Label} />
+
+        <View style={S.bBody}>
+          <BridgeTableHead />
+          {bridgeRows.map((row, i) => (
+            <BridgeTableRow key={i} row={row} />
+          ))}
+        </View>
+
+        <PdfFooter p1={p1Label} p2={p2Label} />
+      </Page>
+
     </Document>
   );
 }
