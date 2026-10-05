@@ -2,12 +2,14 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Activity, Mail, Lock, Eye, EyeOff, KeyRound,
   Loader2, AlertCircle, ShieldCheck, Terminal,
-  Clipboard, CheckCircle2, X,
+  Clipboard, CheckCircle2, X, ArrowLeft,
 } from 'lucide-react';
 import { useAuth, type AuthUser } from '../context/AuthContext';
 
 // URL relativo → in dev Vite proxia /api verso :5001, in prod Apache fa da proxy
 const API_BASE = '/api/auth';
+
+const LANDING_URL = import.meta.env.VITE_LANDING_URL ?? 'https://marginview.it';
 
 // ── Demo OTP notification popup ───────────────────────────────────────────────
 //
@@ -321,6 +323,14 @@ export default function Login({ onSuccess }: LoginProps) {
         {/* Decorative glows */}
         <div className="absolute -top-32 -right-32 w-[28rem] h-[28rem] rounded-full bg-blue-800/15 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-blue-900/10 blur-2xl pointer-events-none" />
+
+        <a
+          href={LANDING_URL}
+          className="absolute top-6 left-6 z-10 inline-flex items-center gap-2 text-sm
+            text-slate-400 hover:text-white transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Torna al sito
+        </a>
 
         <div className="relative w-full max-w-md">
           {/* Branding */}
